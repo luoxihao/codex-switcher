@@ -1,0 +1,484 @@
+#!/bin/sh
+set -eu
+
+# codex-switcher is intentionally a small POSIX shell wrapper around Codex CLI.
+# Legacy DeepSeek profiles use local LiteLLM; direct DeepSeek profiles use the
+# official Responses-compatible DeepSeek endpoint and model catalog.
+
+# Provider tools can pollute HOME/CODEX_HOME/CODEX_SWITCHER_HOME. This personal
+# wrapper always returns to the known primary Codex home on this machine.
+codex_home=/home/luoxihao/.codex
+litellm_manager="$codex_home/litellm/manage.py"
+litellm_python="$codex_home/litellm/venv/bin/python"
+script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
+deepseek_direct_catalog="$codex_home/deepseek-direct-models.json"
+deepseek_direct_catalog_source="${CODEX_SWITCHER_DEEPSEEK_MODELS_JSON:-}"
+if [ -z "$deepseek_direct_catalog_source" ]; then
+  for candidate in \
+    "$script_dir/../assets/deepseek-direct-models.json" \
+    "$HOME/codex-switcher/assets/deepseek-direct-models.json"; do
+    if [ -f "$candidate" ]; then
+      deepseek_direct_catalog_source=$candidate
+      break
+    fi
+  done
+fi
+
+find_codex() {
+  if [ -n "${CODEX_SWITCHER_CODEX_BIN:-}" ] && [ -x "$CODEX_SWITCHER_CODEX_BIN" ]; then
+    printf '%s\n' "$CODEX_SWITCHER_CODEX_BIN"
+    return 0
+  fi
+
+  candidate=$(command -v codex 2>/dev/null || true)
+  [ -n "$candidate" ] || candidate=''
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  # Covers VS Code Codex extensions on Linux and macOS, including x64/arm64.
+  for candidate in \
+    "$HOME"/.vscode/extensions/openai.chatgpt-*/bin/*/codex \
+    "$HOME"/.vscode/extensions/openai.chatgpt-*/codex; do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+find_vscode() {
+  if [ -n "${CODEX_SWITCHER_VSCODE_BIN:-}" ] && [ -x "$CODEX_SWITCHER_VSCODE_BIN" ]; then
+    printf '%s\n' "$CODEX_SWITCHER_VSCODE_BIN"
+    return 0
+  fi
+
+  candidate=$(command -v code 2>/dev/null || true)
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+  candidate=$(command -v code-insiders 2>/dev/null || true)
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  # Common macOS application-bundle locations.
+  for candidate in \
+    "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+    "$HOME/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+    "/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code"; do
+    if [ -x "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+codex_bin=$(find_codex || true)
+if [ -z "$codex_bin" ]; then
+  echo "找不到 Codex CLI。请先安装 Codex，或设置 CODEX_SWITCHER_CODEX_BIN。" >&2
+  exit 1
+fi
+
+die() {
+  echo "错误：$*" >&2
+  exit 1
+}
+
+is_deepseek_profile() {
+  case "$1" in
+    deepseek-pro|deepseek-flash) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_deepseek_direct_profile() {
+  case "$1" in
+    deepseek-direct-flash|deepseek-direct-pro|deepseek-official-flash|deepseek-official-pro)
+      return 0
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+deepseek_direct_model() {
+  case "$1" in
+    deepseek-direct-flash|deepseek-official-flash) printf '%s\n' "deepseek-v4-flash" ;;
+    deepseek-direct-pro|deepseek-official-pro) printf '%s\n' "deepseek-v4-pro" ;;
+    *) return 1 ;;
+  esac
+}
+
+deepseek_legacy_profile() {
+  case "$1" in
+    deepseek-direct-flash|deepseek-official-flash) printf '%s\n' "deepseek-flash" ;;
+    deepseek-direct-pro|deepseek-official-pro) printf '%s\n' "deepseek-pro" ;;
+    *) return 1 ;;
+  esac
+}
+
+read_bearer_token() {
+  file=$1
+  [ -f "$file" ] || return 1
+  sed -n 's/^[[:space:]]*experimental_bearer_token[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | sed -n '1p'
+}
+
+key_is_placeholder() {
+  case "$1" in
+    ''|PASTE_*|REPLACE_*|YOUR_*|'< '*|'<'*) return 0 ;;
+    *) [ ${#1} -lt 10 ] && return 0 || return 1 ;;
+  esac
+}
+
+install_deepseek_direct_catalog() {
+  if [ -f "$deepseek_direct_catalog_source" ]; then
+    mkdir -p "$codex_home"
+    cp "$deepseek_direct_catalog_source" "$deepseek_direct_catalog"
+    chmod 600 "$deepseek_direct_catalog"
+    return 0
+  fi
+
+  [ -f "$deepseek_direct_catalog" ] || die "找不到 DeepSeek 直连模型目录。请重新安装 codex-switcher，或设置 CODEX_SWITCHER_DEEPSEEK_MODELS_JSON。"
+}
+
+deepseek_direct_key_for() {
+  profile=$1
+  target="$codex_home/$profile.config.toml"
+
+  key=${DEEPSEEK_API_KEY:-}
+  if ! key_is_placeholder "$key"; then
+    printf '%s\n' "$key"
+    return 0
+  fi
+
+  key=$(read_bearer_token "$target" || true)
+  if ! key_is_placeholder "$key"; then
+    printf '%s\n' "$key"
+    return 0
+  fi
+
+  legacy=$(deepseek_legacy_profile "$profile")
+  key=$(read_bearer_token "$codex_home/$legacy.config.toml" || true)
+  if ! key_is_placeholder "$key"; then
+    printf '%s\n' "$key"
+    return 0
+  fi
+
+  printf '%s\n' "PASTE_DEEPSEEK_API_KEY_HERE"
+}
+
+write_deepseek_direct_profile() {
+  profile=$1
+  key=$2
+  model=$(deepseek_direct_model "$profile")
+  target="$codex_home/$profile.config.toml"
+  tmp="$target.codex-switcher-tmp.$$"
+
+  mkdir -p "$codex_home"
+  {
+    printf 'model = "%s"\n' "$model"
+    printf 'model_provider = "deepseek-direct"\n'
+    printf 'model_reasoning_effort = "high"\n'
+    printf 'model_catalog_json = "%s"\n' "$deepseek_direct_catalog"
+    printf '\n'
+    printf '[model_providers.deepseek-direct]\n'
+    printf 'name = "DeepSeek Direct"\n'
+    printf 'base_url = "https://api.deepseek.com/"\n'
+    printf 'wire_api = "responses"\n'
+    printf 'requires_openai_auth = false\n'
+    printf 'supports_websockets = false\n'
+    printf 'experimental_bearer_token = "%s"\n' "$key"
+  } > "$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$target"
+}
+
+ensure_deepseek_direct_profile() {
+  profile=$1
+  mode=${2:-launch}
+
+  install_deepseek_direct_catalog
+  key=$(deepseek_direct_key_for "$profile")
+  write_deepseek_direct_profile "$profile" "$key"
+
+  if [ "$mode" != "edit" ] && key_is_placeholder "$key"; then
+    die "尚未填写 DeepSeek API Key；请执行：codex-switcher edit $profile"
+  fi
+}
+
+start_deepseek_proxy() {
+  profile_file=$1
+  [ -x "$litellm_python" ] || die "LiteLLM 运行环境不存在：$litellm_python"
+  [ -f "$litellm_manager" ] || die "LiteLLM 管理器不存在：$litellm_manager"
+  "$litellm_python" "$litellm_manager" ensure "$profile_file"
+}
+
+stop_deepseek_proxy() {
+  if [ -x "$litellm_python" ] && [ -f "$litellm_manager" ]; then
+    if ! "$litellm_python" "$litellm_manager" stop; then
+      echo "警告：未能停止 LiteLLM；仍将继续切换到官方 Codex。" >&2
+    fi
+  fi
+  return 0
+}
+
+prepare_official_environment() {
+  unset CODEX_SWITCHER_HOME
+  unset CODEX_SWITCHER_CODEX_BIN
+  unset CODEX_SWITCHER_VSCODE_BIN
+  unset CODEX_SWITCHER_EDITOR
+  prepare_provider_environment
+}
+
+prepare_provider_environment() {
+  unset DEEPSEEK_API_KEY
+  unset LITELLM_API_KEY
+  unset LITELLM_PROXY_API_KEY
+  unset ANTHROPIC_BASE_URL
+  unset ANTHROPIC_AUTH_TOKEN
+  unset OPENAI_BASE_URL
+  unset OPENAI_API_KEY
+}
+
+valid_name() {
+  case "$1" in
+    ''|*[^A-Za-z0-9._-]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+reserved_name() {
+  case "$1" in
+    list|create|edit|delete|remove|rm|official|default|reset|restore|help|version)
+      return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+list_profiles() {
+  {
+    for file in "$codex_home"/*.config.toml; do
+      [ -f "$file" ] || continue
+      base=${file##*/}
+      printf '%s\n' "${base%.config.toml}"
+    done
+    printf '%s\n' deepseek-direct-flash deepseek-direct-pro
+  } | sort -u
+}
+
+usage() {
+  cat <<'EOF'
+用法：
+  codex-switcher                         交互选择 profile 并启动 Codex
+  codex-switcher official                使用默认/官方配置启动 Codex
+  codex-switcher vscode <名称>           带指定供应商环境启动 VS Code Codex
+  codex-switcher list                    列出已有 profile
+  codex-switcher create <名称>           创建新的 profile（不会覆盖已有文件）
+  codex-switcher edit <名称>             用 vim/指定编辑器打开对应 TOML
+  codex-switcher delete <名称> [--yes]   删除一个 profile（默认需要确认）
+  codex-switcher <名称> [Codex参数...]   启动指定 profile
+
+官方回退别名：official、default、reset、restore
+DeepSeek 直连：deepseek-direct-flash / deepseek-direct-pro 不经过 LiteLLM。
+DeepSeek 旧桥接：deepseek-pro / deepseek-flash 会自动启动本机 LiteLLM；切回官方或直连会停止它。
+注意：停止代理会中断仍在运行的旧桥接 DeepSeek Codex 会话。
+编辑器：优先使用 CODEX_SWITCHER_EDITOR，其次 VISUAL/EDITOR，默认 vim
+profile：$CODEX_HOME/<名称>.config.toml（默认 ~/.codex）
+认证文件 ~/.codex/auth.json 不会被复制、删除或切换。
+
+VS Code：vscode 命令会让 VS Code 继承对应的 CODEX_HOME。
+已有 VS Code 窗口需要完全退出后重新启动；--isolated 可启动独立窗口。
+EOF
+}
+
+case "${1:-}" in
+  -h|--help|help)
+    usage
+    exit 0
+    ;;
+  -V|--version|version)
+    echo "codex-switcher 2.1.0"
+    exit 0
+    ;;
+  list)
+    list_profiles
+    exit 0
+    ;;
+  create)
+    name=${2:-}
+    valid_name "$name" || die "名称只能包含字母、数字、点、下划线和短横线。"
+    reserved_name "$name" && die "名称 '$name' 是保留命令名，请换一个 profile 名称。"
+    target="$codex_home/$name.config.toml"
+    [ -e "$target" ] && die "profile 已存在，不会覆盖：$target"
+    [ -f "$codex_home/config.toml" ] || die "找不到基础配置：$codex_home/config.toml"
+    mkdir -p "$codex_home"
+    cp "$codex_home/config.toml" "$target"
+    chmod 600 "$target"
+    echo "已创建 $target"
+    echo "请执行：codex-switcher edit $name"
+    exit 0
+    ;;
+  edit)
+    name=${2:-}
+    [ -n "$name" ] || die "请指定 profile 名称，例如：codex-switcher edit provider-a"
+    valid_name "$name" || die "无效 profile 名称。"
+    if is_deepseek_direct_profile "$name"; then
+      ensure_deepseek_direct_profile "$name" edit
+    fi
+    case "$name" in
+      official|default|reset|restore) target="$codex_home/config.toml" ;;
+      *) target="$codex_home/$name.config.toml" ;;
+    esac
+    [ -f "$target" ] || die "找不到配置文件：$target"
+    editor=${CODEX_SWITCHER_EDITOR:-${VISUAL:-${EDITOR:-vim}}}
+    editor_bin=$(command -v "$editor" 2>/dev/null || true)
+    [ -n "$editor_bin" ] || die "找不到编辑器 '$editor'。可设置 CODEX_SWITCHER_EDITOR，或安装 vim。"
+    exec "$editor_bin" "$target"
+    ;;
+  delete|remove|rm)
+    name=${2:-}
+    [ -n "$name" ] || die "请指定要删除的 profile，例如：codex-switcher delete provider-a"
+    if [ "$name" = "--yes" ]; then
+      name=${3:-}
+      yes=1
+    else
+      yes=0
+      [ "${3:-}" = "--yes" ] && yes=1
+    fi
+    valid_name "$name" || die "无效 profile 名称。"
+    case "$name" in
+      official|default|reset|restore)
+        target="$codex_home/$name.config.toml"
+        ;;
+      *)
+        target="$codex_home/$name.config.toml"
+        ;;
+    esac
+    [ -f "$target" ] || die "不存在 profile：$name"
+    if [ "$yes" -ne 1 ]; then
+      printf "确定删除 profile '%s'？只删除该 profile，不影响默认配置和 auth.json。[y/N] " "$name"
+      read -r answer
+      case "$answer" in
+        y|Y|yes|YES) ;;
+        *) echo "已取消。"; exit 0 ;;
+      esac
+    fi
+    rm "$target"
+    echo "已删除 profile：$name"
+    exit 0
+    ;;
+  vscode)
+    name=${2:-}
+    [ -n "$name" ] || die "请指定供应商，例如：codex-switcher vscode provider-a"
+    valid_name "$name" || die "无效 profile 名称。"
+
+    case "$name" in
+      official|default|reset|restore)
+        stop_deepseek_proxy
+        prepare_official_environment
+        vscode_home="$codex_home"
+        ;;
+      *)
+        profile_file="$codex_home/$name.config.toml"
+        if is_deepseek_direct_profile "$name"; then
+          ensure_deepseek_direct_profile "$name" launch
+          stop_deepseek_proxy
+          prepare_provider_environment
+        fi
+        [ -f "$profile_file" ] || die "不存在 profile：$name"
+        if is_deepseek_profile "$name"; then
+          start_deepseek_proxy "$profile_file"
+        fi
+        vscode_home="$codex_home/codex-switcher-vscode/$name"
+        mkdir -p "$vscode_home"
+        cp "$profile_file" "$vscode_home/config.toml"
+        chmod 600 "$vscode_home/config.toml"
+        # Reuse the existing login without copying the secret file.
+        if [ -f "$codex_home/auth.json" ] && [ ! -e "$vscode_home/auth.json" ]; then
+          ln -s "$codex_home/auth.json" "$vscode_home/auth.json"
+        fi
+        ;;
+    esac
+
+    vscode_bin=$(find_vscode || true)
+    [ -n "$vscode_bin" ] || die "找不到 VS Code 命令。请安装 code 命令，或设置 CODEX_SWITCHER_VSCODE_BIN。"
+    shift 2
+    isolated=0
+    if [ "${1:-}" = "--isolated" ]; then
+      isolated=1
+      shift
+    fi
+    echo "正在启动 VS Code Codex，供应商：$name"
+    echo "CODEX_HOME=$vscode_home"
+    if [ "$isolated" -eq 0 ]; then
+      echo "如果 VS Code 已经打开，请先完全退出再运行；否则旧窗口可能继续使用旧供应商。"
+      unset ELECTRON_RUN_AS_NODE
+      CODEX_HOME="$vscode_home" exec "$vscode_bin" --new-window "$@"
+    else
+      data_home="$codex_home/codex-switcher-vscode-data/$name"
+      mkdir -p "$data_home"
+      echo "使用独立 VS Code 用户数据目录：$data_home"
+      unset ELECTRON_RUN_AS_NODE
+      CODEX_HOME="$vscode_home" exec "$vscode_bin" --new-window --user-data-dir "$data_home" "$@"
+    fi
+    ;;
+  official|default|reset|restore)
+    stop_deepseek_proxy
+    prepare_official_environment
+    echo "已清理 DeepSeek/LiteLLM 状态，正在使用官方 OpenAI Codex。"
+    unset ELECTRON_RUN_AS_NODE
+    shift
+    CODEX_HOME="$codex_home" exec "$codex_bin" \
+      -c 'model_provider="openai"' \
+      -c 'model="gpt-5.4"' \
+      "$@"
+    ;;
+esac
+
+if [ "$#" -gt 0 ] && [ "${1#-}" != "$1" ]; then
+  die "请先指定 profile 名称；使用 codex-switcher --help 查看用法。"
+fi
+
+profile=${1:-}
+if [ -z "$profile" ]; then
+  profiles=$(list_profiles)
+  if [ -z "$profiles" ]; then
+    die "还没有 profile。先运行：codex-switcher create <名称>"
+  fi
+  echo "选择 Codex profile："
+  i=1
+  for item in $profiles; do
+    printf '  %s) %s\n' "$i" "$item"
+    i=$((i + 1))
+  done
+  printf '编号：'
+  read -r choice
+  profile=$(printf '%s\n' "$profiles" | sed -n "${choice}p")
+  [ -n "$profile" ] || die "无效选择。"
+else
+  shift
+fi
+
+valid_name "$profile" || die "无效 profile 名称。"
+reserved_name "$profile" && die "'$profile' 是保留命令名，请使用 codex-switcher official 或换一个 profile 名称。"
+if is_deepseek_direct_profile "$profile"; then
+  ensure_deepseek_direct_profile "$profile" launch
+  stop_deepseek_proxy
+  prepare_provider_environment
+fi
+target="$codex_home/$profile.config.toml"
+[ -f "$target" ] || die "不存在 profile：$profile"
+
+if is_deepseek_profile "$profile"; then
+  start_deepseek_proxy "$target"
+fi
+
+unset ELECTRON_RUN_AS_NODE
+CODEX_HOME="$codex_home" exec "$codex_bin" --profile "$profile" "$@"
