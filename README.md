@@ -448,7 +448,7 @@ codex-switcher restore
 1. 停止由切换器管理的 LiteLLM。
 2. 清除 DeepSeek、LiteLLM、OpenAI Base URL 和 API Key 环境覆盖。
 3. 忽略继承的 `HOME`、`CODEX_HOME` 和 `CODEX_SWITCHER_HOME`。
-4. 使用固定的 Codex 主目录（见[迁移到其他机器](#迁移到其他机器)）。
+4. 使用解析出的 Codex 主目录（默认 `~/.codex`，忽略继承的 `CODEX_HOME`，见[迁移到其他机器](#迁移到其他机器)）。
 5. 移除临时 DeepSeek 模型元数据。
 6. 强制 `model_provider="openai"`。
 7. 保留 `~/.codex/auth.json` 和现有 ChatGPT 登录。
@@ -461,7 +461,7 @@ codex-switcher restore
 | 变量 | 作用 | 默认值 |
 |---|---|---|
 | `CODEX_SWITCHER_BIN_DIR` | 命令安装目录 | `~/.local/bin` |
-| `CODEX_SWITCHER_CODEX_HOME` | 安装脚本使用的 Codex 主目录 | `$CODEX_HOME`，否则 `~/.codex` |
+| `CODEX_SWITCHER_CODEX_HOME` | Codex 主目录（安装脚本与包装器共用） | `~/.codex` |
 | `CODEX_SWITCHER_NO_PATH` | 设为 `1` 时跳过 PATH 写入 | `0` |
 | `CODEX_SWITCHER_EDITOR` | 编辑 Profile 的编辑器 | `$EDITOR` |
 | `CODEX_SWITCHER_CODEX_BIN` | 指定 codex 可执行文件路径 | 自动查找 |
@@ -557,11 +557,13 @@ Profile TOML 与 `auth.json` 属于机器相关的用户数据，**不在仓库�
 把项目给其他机器/用户使用时，请注意：
 
 1. **安装脚本已参数化**：`install.sh` 通过 `CODEX_SWITCHER_BIN_DIR`、`CODEX_SWITCHER_CODEX_HOME`、`CODEX_SWITCHER_NO_PATH` 控制安装位置，不需要改代码。
-2. **包装器主目录常量**：`bin/codex-switcher` 中目前把 Codex 主目录写死在脚本顶部（`codex_home=...`），这是为了保证“强制返回官方”时不被污染的环境变量影响。移植到其他机器前，建议改为：
+2. **包装器主目录解析**：`bin/codex-switcher` 与 `install.sh` 统一从 `CODEX_SWITCHER_CODEX_HOME` 解析 Codex 主目录，默认 `~/.codex`：
 
    ```sh
-   codex_home=${CODEX_SWITCHER_CODEX_HOME:-${CODEX_HOME:-$HOME/.codex}}
+   codex_home=${CODEX_SWITCHER_CODEX_HOME:-$HOME/.codex}
    ```
+
+   继承的 `CODEX_HOME` / `CODEX_SWITCHER_HOME` 被**有意忽略**，防止第三方 Provider 工具污染环境后“强制返回官方”失效；需要自定义主目录时，显式设置 `CODEX_SWITCHER_CODEX_HOME` 即可。
 
 3. **Profile 与 Key 不入库**：DeepSeek Profile TOML、`auth.json` 包含机器相关配置和密钥，换机器后重新编辑填写即可。
 

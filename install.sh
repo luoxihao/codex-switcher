@@ -3,7 +3,7 @@ set -eu
 
 package_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
 bin_dir=${CODEX_SWITCHER_BIN_DIR:-$HOME/.local/bin}
-codex_home_dir=${CODEX_SWITCHER_CODEX_HOME:-${CODEX_HOME:-$HOME/.codex}}
+codex_home_dir=${CODEX_SWITCHER_CODEX_HOME:-$HOME/.codex}
 
 mkdir -p "$bin_dir"
 install -m 0755 "$package_dir/bin/codex-switcher" "$bin_dir/codex-switcher"

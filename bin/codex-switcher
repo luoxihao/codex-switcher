@@ -5,9 +5,11 @@ set -eu
 # Legacy DeepSeek profiles use local LiteLLM; direct DeepSeek profiles use the
 # official Responses-compatible DeepSeek endpoint and model catalog.
 
-# Provider tools can pollute HOME/CODEX_HOME/CODEX_SWITCHER_HOME. This personal
-# wrapper always returns to the known primary Codex home on this machine.
-codex_home=/home/luoxihao/.codex
+# Provider tools can pollute HOME/CODEX_HOME/CODEX_SWITCHER_HOME. This wrapper
+# always returns to the primary Codex home even when those variables are
+# polluted. Override with CODEX_SWITCHER_CODEX_HOME when the Codex home is not
+# the default $HOME/.codex.
+codex_home=${CODEX_SWITCHER_CODEX_HOME:-$HOME/.codex}
 litellm_manager="$codex_home/litellm/manage.py"
 litellm_python="$codex_home/litellm/venv/bin/python"
 script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
@@ -290,7 +292,7 @@ DeepSeek 直连：deepseek-direct-flash / deepseek-direct-pro 不经过 LiteLLM�
 DeepSeek 旧桥接：deepseek-pro / deepseek-flash 会自动启动本机 LiteLLM；切回官方或直连会停止它。
 注意：停止代理会中断仍在运行的旧桥接 DeepSeek Codex 会话。
 编辑器：优先使用 CODEX_SWITCHER_EDITOR，其次 VISUAL/EDITOR，默认 vim
-profile：$CODEX_HOME/<名称>.config.toml（默认 ~/.codex）
+profile：<Codex 主目录>/<名称>.config.toml（默认 ~/.codex，可用 CODEX_SWITCHER_CODEX_HOME 覆盖）
 认证文件 ~/.codex/auth.json 不会被复制、删除或切换。
 
 VS Code：vscode 命令会让 VS Code 继承对应的 CODEX_HOME。
