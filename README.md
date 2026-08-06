@@ -1,51 +1,74 @@
 # codex-switcher
 
-在官方 OpenAI Codex、DeepSeek V4 Pro、DeepSeek V4 Flash 和其他自定义 Provider 之间安全切换。
+在官方 OpenAI Codex 与 DeepSeek 等第三方 Provider 之间安全切换的命令行包装器。
 
-| 项目 | 当前配置 |
-|---|---|
-| 切换器 | `codex-switcher 2.1.0` |
-| Codex 主目录 | `/home/luoxihao/.codex` |
-| DeepSeek 推荐路径 | 官方直连，`https://api.deepseek.com/` |
-| DeepSeek 备用路径 | LiteLLM，监听 `127.0.0.1:4000` |
-| 官方恢复模型 | `gpt-5.4` |
-| 配置更新时间 | 2026-08-06 |
+`codex-switcher` 本身是 Codex CLI 的一层薄封装：它按 Profile 准备环境（模型目录、API Key、可选的 LiteLLM 代理），再以 `codex --profile <name>` 启动，避免手工改配置、污染环境变量或在多个 Provider 之间反复切换出错。
 
-> [!IMPORTANT]
-> 遇到第三方 Provider、Key、代理或环境变量问题时，执行 `codex-switcher official`。这是本机强制返回官方 Codex 的安全入口。
+> [!TIP]
+> 相关项目：[proxy-switcher](../proxy-switcher) 提供 Linux 桌面的统一代理切换，两者可以配合使用。
 
 ## 目录
 
+- [特性](#特性)
+- [环境要求](#环境要求)
 - [快速开始](#快速开始)
-- [安装或更新](#安装或更新)
+- [安装 / 更新 / 卸载](#安装--更新--卸载)
 - [工作原理](#工作原理)
+- [使用](#使用)
 - [配置 DeepSeek Key](#配置-deepseek-key)
 - [启动与恢复会话](#启动与恢复会话)
 - [Codex 命令兼容性](#codex-命令兼容性)
-- [DeepSeek 功能支持](#deepseek-功能支持)
 - [Profile 管理](#profile-管理)
 - [VS Code](#vs-code)
 - [强制返回官方](#强制返回官方)
+- [环境变量参考](#环境变量参考)
 - [故障排查](#故障排查)
 - [文件结构](#文件结构)
+- [迁移到其他机器](#迁移到其他机器)
 - [安全说明](#安全说明)
 - [参考资料](#参考资料)
 
+## 特性
+
+- 官方 Codex、DeepSeek 官方直连、DeepSeek LiteLLM 桥接三种 Profile 一键切换。
+- API Key 持久化写入 Profile TOML（权限 600），不依赖临时环境变量。
+- 支持会话恢复（`resume`）、分叉（`fork`）、归档（`archive`）等 Codex 常用命令透传。
+- 旧 LiteLLM 桥接路径自动管理代理进程，切换或恢复官方时自动清理。
+- 提供 VS Code 集成，让 VS Code 内嵌 Codex 使用指定 Provider。
+- 提供 `install.sh` / `uninstall.sh`，安装、更新、卸载一条命令完成。
+
+## 环境要求
+
+| 依赖 | 说明 |
+|---|---|
+| Codex CLI | `codex` 命令需在 `PATH` 中，或通过 `CODEX_SWITCHER_CODEX_BIN` 指定路径 |
+| POSIX Shell | 安装脚本使用 `sh`，包装器为 POSIX shell 脚本 |
+| LiteLLM（可选） | 仅旧桥接 Profile（`deepseek-flash` / `deepseek-pro`）需要独立的 LiteLLM 运行环境 |
+| 编辑器（可选） | 编辑 Profile 时使用 `$EDITOR`，可通过 `CODEX_SWITCHER_EDITOR` 覆盖 |
+
 ## 快速开始
 
-### 常用命令
+把仓库克隆到任意目录（下文以 `~/codex-switcher` 为例），然后安装：
 
 ```bash
-# 普通启动官方 Codex
-codex
+git clone <仓库地址> ~/codex-switcher
+cd ~/codex-switcher
+sh install.sh
+```
+
+安装完成后：
+
+```bash
+# 查看已有哪些 Profile
+codex-switcher list
 
 # 启动 DeepSeek 官方直连（推荐）
 codex-switcher deepseek-direct-flash
 codex-switcher deepseek-direct-pro
 
 # 启动旧 LiteLLM 桥接（备用）
-codex-switcher deepseek-pro
 codex-switcher deepseek-flash
+codex-switcher deepseek-pro
 
 # 恢复最近的 DeepSeek 直连会话
 codex-switcher deepseek-direct-flash resume --last
@@ -54,35 +77,42 @@ codex-switcher deepseek-direct-flash resume --last
 codex-switcher official
 ```
 
-### 命令速查
+`deepseek-direct-*`、`deepseek-*` 是预置 Profile 名称；它们对应的 TOML 会在首次编辑 Key 时创建（见[配置 DeepSeek Key](#配置-deepseek-key)）。
 
-| 目的 | 命令 |
-|---|---|
-| 官方 Codex | `codex` |
-| DeepSeek Flash 直连 | `codex-switcher deepseek-direct-flash` |
-| DeepSeek Pro 直连 | `codex-switcher deepseek-direct-pro` |
-| DeepSeek Flash 旧桥接 | `codex-switcher deepseek-flash` |
-| DeepSeek Pro 旧桥接 | `codex-switcher deepseek-pro` |
-| 强制返回官方 | `codex-switcher official` |
-| 查看 Profile | `codex-switcher list` |
-| 查看帮助 | `codex-switcher --help` |
-| 查看版本 | `codex-switcher --version` |
+## 安装 / 更新 / 卸载
 
-## 安装或更新
-
-本机工具源码位于 `/home/luoxihao/codex-switcher`。安装或覆盖更新：
+### 安装或更新
 
 ```bash
 sh ~/codex-switcher/install.sh
 ```
 
-安装器只写入 `~/.local/bin/codex-switcher`。如果不希望它修改 Shell 的 PATH 配置：
+安装器只写入用户目录，不需要 root：
+
+1. 把 `bin/codex-switcher` 安装到 `~/.local/bin/codex-switcher`。
+2. 如果 Codex 主目录下存在 `bin/` 或 `codex-switcher-package/bin/`，同步一份命令过去。
+3. 安装 DeepSeek 直连模型目录到 Codex 主目录。
+4. 如尚未配置，向 shell 启动文件追加 `~/.local/bin` 的 `PATH`。
+
+不希望修改 shell 配置时：
 
 ```bash
 CODEX_SWITCHER_NO_PATH=1 sh ~/codex-switcher/install.sh
 ```
 
-自定义安装目录时使用 `CODEX_SWITCHER_BIN_DIR`。
+自定义安装目录：
+
+```bash
+CODEX_SWITCHER_BIN_DIR=/opt/tools sh ~/codex-switcher/install.sh
+```
+
+### 卸载
+
+```bash
+sh ~/codex-switcher/uninstall.sh
+```
+
+卸载会删除安装的命令与 PATH 配置，并停止由切换器管理的 LiteLLM。**不会删除** Codex 主目录下的 `auth.json`、`config.toml` 或各 Profile TOML（其中包含 API Key，属于用户数据）。
 
 ## 工作原理
 
@@ -104,25 +134,45 @@ flowchart LR
 
 切换只影响新启动的进程：
 
-- `codex-switcher deepseek-direct-flash` 只影响它启动的 Codex。
+- `codex-switcher deepseek-direct-flash` 只影响它启动的 Codex 进程。
 - `codex-switcher deepseek-flash` 是旧 LiteLLM 桥接路径，作为备用保留。
 - 已经打开的其他 Codex 或 VS Code 会话不会自动切换。
 - 关闭 DeepSeek Codex 后，直接运行 `codex` 会使用官方默认配置。
 - 后台 LiteLLM 即使仍在运行，普通 `codex` 也不会调用它。
-- `codex-switcher official` 和 DeepSeek 直连都会停止旧 LiteLLM 并完成环境清理。
+- `codex-switcher official` 与 DeepSeek 直连都会停止旧 LiteLLM 并完成环境清理。
+
+## 使用
+
+### 常用命令
+
+| 目的 | 命令 |
+|---|---|
+| 官方 Codex | `codex` |
+| DeepSeek Flash 直连 | `codex-switcher deepseek-direct-flash` |
+| DeepSeek Pro 直连 | `codex-switcher deepseek-direct-pro` |
+| DeepSeek Flash 旧桥接 | `codex-switcher deepseek-flash` |
+| DeepSeek Pro 旧桥接 | `codex-switcher deepseek-pro` |
+| 强制返回官方 | `codex-switcher official` |
+| 查看 Profile | `codex-switcher list` |
+| 查看帮助 | `codex-switcher --help` |
+| 查看版本 | `codex-switcher --version` |
+
+不带参数直接运行 `codex-switcher` 会进入 Profile 交互选择。
 
 ## 配置 DeepSeek Key
 
 > [!IMPORTANT]
-> 本机 DeepSeek Key 是持久写入 TOML，不是临时环境变量。保存后关闭终端或重启电脑仍然有效。
+> Key 是持久写入 TOML，不是临时环境变量。保存后关闭终端或重启电脑仍然有效。
 
-### 配置文件
+### 配置文件位置
+
+Codex 主目录（默认 `~/.codex`）下的 Profile TOML：
 
 ```text
-/home/luoxihao/.codex/deepseek-pro.config.toml
-/home/luoxihao/.codex/deepseek-flash.config.toml
-/home/luoxihao/.codex/deepseek-direct-pro.config.toml
-/home/luoxihao/.codex/deepseek-direct-flash.config.toml
+~/.codex/deepseek-pro.config.toml
+~/.codex/deepseek-flash.config.toml
+~/.codex/deepseek-direct-pro.config.toml
+~/.codex/deepseek-direct-flash.config.toml
 ```
 
 ### 编辑 Key
@@ -173,10 +223,10 @@ experimental_bearer_token = "在这里填写真实 DeepSeek API Key"
 
 ### 不需要环境变量
 
-本机 DeepSeek 不需要下面这种临时写法：
+不需要下面的临时写法：
 
 ```bash
-# 不需要这样启动本机 DeepSeek
+# 不需要这样启动 DeepSeek
 DEEPSEEK_API_KEY='你的密钥' codex-switcher deepseek-pro
 ```
 
@@ -198,8 +248,8 @@ codex-switcher deepseek-pro
 启动器会自动：
 
 1. 检查对应 Profile 和 Key。
-2. 对直连 Profile 安装官方 DeepSeek 模型目录。
-3. 对旧桥接 Profile 启动或复用本机 LiteLLM。
+2. 对直连 Profile 安装 DeepSeek 模型目录。
+3. 对旧桥接 Profile 启动或复用 LiteLLM。
 4. 使用对应 Profile 启动 Codex。
 
 ### 恢复会话
@@ -257,7 +307,7 @@ codex --profile <profile> ...
 
 ### 必须直接使用原生 codex
 
-下面这些属于安装、认证、服务或全局管理，不应通过 DeepSeek Profile 启动：
+下面这些属于安装、认证、服务或全局管理，不应通过 Profile 启动：
 
 | 功能 | 正确命令 |
 |---|---|
@@ -291,41 +341,6 @@ codex login status
 codex doctor
 codex update
 ```
-
-## DeepSeek 功能支持
-
-`codex-switcher` 能透传 Codex 命令，不代表 DeepSeek 能提供全部 OpenAI 原生模型能力。
-
-| 功能 | 状态 | 说明 |
-|---|---|---|
-| 交互式编码 | 支持 | 通过 Codex CLI 使用 |
-| Shell 命令 | 支持 | 已完成真实工具回合测试 |
-| 文件读取与修改 | 支持 | 受 Codex 沙箱和审批策略限制 |
-| `exec` | 支持 | 使用对应 DeepSeek Profile |
-| `review` | 支持命令 | 最终效果取决于模型能力 |
-| 会话恢复与分叉 | 支持 | 必须继续带原 Profile |
-| 审批与沙箱 | 支持 | 由 Codex CLI 执行 |
-| 普通函数工具 | 直连支持 | 旧桥接由 LiteLLM 转换 |
-| 并行工具调用 | 直连开启 | 旧桥接关闭，避免工具历史错误 |
-| OpenAI 原生网页搜索 | 直连声明支持 | 实际效果取决于 DeepSeek API |
-| 图片输入 | 当前不支持 | 当前只声明文本输入 |
-| OpenAI 专属高级工具 | 不保证 | 旧桥接更容易在转换时降级 |
-| MCP/插件模型工具 | 视工具而定 | 普通函数调用兼容性更好 |
-
-### 推荐路径
-
-优先使用 `deepseek-direct-flash` / `deepseek-direct-pro`。直连 Profile 使用 DeepSeek 官方 Codex 模型目录和 `https://api.deepseek.com/`，不再经过本机 LiteLLM，因此不会出现 LiteLLM 丢弃 Codex `namespace` 工具的问题。
-
-### LiteLLM 兼容处理
-
-旧 `deepseek-flash` / `deepseek-pro` 桥接层负责：
-
-- Responses API 到 DeepSeek 接口的转换。
-- 规范化 Codex 工具调用历史。
-- 清除工具调用与结果之间的空 assistant 消息。
-- 校验 `tool_call_id` 与工具结果。
-- 关闭并行工具调用。
-- 返回 Codex 所需的模型目录格式。
 
 ## Profile 管理
 
@@ -430,17 +445,28 @@ codex-switcher restore
 
 官方回退会：
 
-1. 停止 `codex-switcher` 管理的 LiteLLM。
+1. 停止由切换器管理的 LiteLLM。
 2. 清除 DeepSeek、LiteLLM、OpenAI Base URL 和 API Key 环境覆盖。
 3. 忽略继承的 `HOME`、`CODEX_HOME` 和 `CODEX_SWITCHER_HOME`。
-4. 固定使用 `/home/luoxihao/.codex`。
+4. 使用固定的 Codex 主目录（见[迁移到其他机器](#迁移到其他机器)）。
 5. 移除临时 DeepSeek 模型元数据。
 6. 强制 `model_provider="openai"`。
-7. 强制官方 `gpt-5.4`。
-8. 保留 `~/.codex/auth.json` 和现有 ChatGPT 登录。
+7. 保留 `~/.codex/auth.json` 和现有 ChatGPT 登录。
 
 > [!NOTE]
-> 此回退已经在同时污染 `HOME`、`CODEX_HOME`、`CODEX_SWITCHER_HOME`、`OPENAI_BASE_URL` 和 Provider Key 的情况下验证，最终仍显示 `Logged in using ChatGPT`。
+> 回退已在同时污染 `HOME`、`CODEX_HOME`、`CODEX_SWITCHER_HOME`、`OPENAI_BASE_URL` 和 Provider Key 的情况下验证，最终仍显示官方登录状态。
+
+## 环境变量参考
+
+| 变量 | 作用 | 默认值 |
+|---|---|---|
+| `CODEX_SWITCHER_BIN_DIR` | 命令安装目录 | `~/.local/bin` |
+| `CODEX_SWITCHER_CODEX_HOME` | 安装脚本使用的 Codex 主目录 | `$CODEX_HOME`，否则 `~/.codex` |
+| `CODEX_SWITCHER_NO_PATH` | 设为 `1` 时跳过 PATH 写入 | `0` |
+| `CODEX_SWITCHER_EDITOR` | 编辑 Profile 的编辑器 | `$EDITOR` |
+| `CODEX_SWITCHER_CODEX_BIN` | 指定 codex 可执行文件路径 | 自动查找 |
+| `CODEX_SWITCHER_VSCODE_BIN` | 指定 VS Code 可执行文件路径 | 自动查找 |
+| `CODEX_SWITCHER_DEEPSEEK_MODELS_JSON` | DeepSeek 模型目录 JSON 的来源文件 | 仓库 `assets/` |
 
 ## 故障排查
 
@@ -496,41 +522,56 @@ codex --version
 ## 文件结构
 
 ```text
-/home/luoxihao/.codex/
-├── auth.json                         # 官方 ChatGPT 登录
-├── config.toml                       # 官方默认配置
-├── deepseek-direct-models.json        # DeepSeek 官方直连模型目录
-├── deepseek-direct-pro.config.toml    # Pro 直连 Profile，权限 600
-├── deepseek-direct-flash.config.toml  # Flash 直连 Profile，权限 600
-├── deepseek-pro.config.toml          # Pro Profile，权限 600
-├── deepseek-flash.config.toml        # Flash Profile，权限 600
-├── bin/
-│   ├── codex-switcher               # 当前包装器源码
-│   └── codex-switcher-1.0.0         # 改造前备份
-└── litellm/
-    ├── config.yaml                   # 模型映射
-    ├── manage.py                     # 代理与元数据管理
-    ├── bridge_guard.py               # 工具历史兼容保护
-    ├── litellm.log                   # 运行日志
-    └── venv/                         # 独立 Python 环境
+~/codex-switcher/                 # 源码仓库（clone 位置可自定义）
+├── README.md
+├── install.sh
+├── uninstall.sh
+├── assets/
+│   └── deepseek-direct-models.json
+└── bin/
+    └── codex-switcher
 
-/home/luoxihao/.local/bin/
-└── codex-switcher                   # 实际执行命令，版本 2.1.0
+~/.local/bin/
+└── codex-switcher                # 安装后的命令
 
-/home/luoxihao/codex-switcher/
-├── assets/deepseek-direct-models.json # DeepSeek 官方模型目录资产
-├── install.sh                       # 安装脚本
-├── README.md                        # 项目说明
-└── bin/codex-switcher               # 可安装命令源码
+~/.codex/                         # Codex 主目录（安装目标之一，用户数据）
+├── auth.json                     # 官方 ChatGPT 登录
+├── config.toml                   # 官方默认配置
+├── deepseek-direct-models.json   # DeepSeek 官方直连模型目录
+├── deepseek-direct-pro.config.toml
+├── deepseek-direct-flash.config.toml
+├── deepseek-pro.config.toml
+├── deepseek-flash.config.toml
+└── litellm/                      # 旧桥接路径的运行时目录（可选）
+    ├── config.yaml
+    ├── manage.py
+    ├── bridge_guard.py
+    ├── litellm.log
+    └── venv/
 ```
+
+Profile TOML 与 `auth.json` 属于机器相关的用户数据，**不在仓库内**，安装脚本也不会覆盖它们。
+
+## 迁移到其他机器
+
+把项目给其他机器/用户使用时，请注意：
+
+1. **安装脚本已参数化**：`install.sh` 通过 `CODEX_SWITCHER_BIN_DIR`、`CODEX_SWITCHER_CODEX_HOME`、`CODEX_SWITCHER_NO_PATH` 控制安装位置，不需要改代码。
+2. **包装器主目录常量**：`bin/codex-switcher` 中目前把 Codex 主目录写死在脚本顶部（`codex_home=...`），这是为了保证“强制返回官方”时不被污染的环境变量影响。移植到其他机器前，建议改为：
+
+   ```sh
+   codex_home=${CODEX_SWITCHER_CODEX_HOME:-${CODEX_HOME:-$HOME/.codex}}
+   ```
+
+3. **Profile 与 Key 不入库**：DeepSeek Profile TOML、`auth.json` 包含机器相关配置和密钥，换机器后重新编辑填写即可。
 
 ## 安全说明
 
 > [!WARNING]
 > - 不要提交 API Key、DeepSeek Profile 或 `auth.json`。
 > - 不要删除或复制 `auth.json` 来切换 Provider。
-> - `~/.local/bin/codex-switcher` 是当前唯一受支持的切换命令。
-> - 重新安装时只使用 `~/codex-switcher/install.sh`。
+> - 安装后的命令默认位于 `~/.local/bin/codex-switcher`，请通过它使用，而不是直接执行仓库里的副本（安装器会处理同步）。
+> - 重新安装时使用 `~/codex-switcher/install.sh`，不要手工覆盖 Codex 主目录文件。
 > - 删除 Profile 或会话前先确认目标。
 
 Profile 权限：
