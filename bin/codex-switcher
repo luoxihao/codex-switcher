@@ -1,17 +1,17 @@
 #!/bin/sh
 set -eu
 
-# codex-switcher is intentionally a small POSIX shell wrapper around Codex CLI.
-# Legacy DeepSeek profiles use local LiteLLM; direct DeepSeek profiles use the
-# official Responses-compatible DeepSeek endpoint and model catalog.
+# codex-switcher is a small POSIX shell wrapper around Codex CLI.
+# It manages profiles for OpenAI-compatible relays (must implement GET /models
+# and the Responses API). When a relay profile is added, sync-models queries
+# <base_url>/models and merges the discovered models into the profile model
+# catalog, so /model can switch between all supported models.
 
 # Provider tools can pollute HOME/CODEX_HOME/CODEX_SWITCHER_HOME. This wrapper
 # always returns to the primary Codex home even when those variables are
 # polluted. Override with CODEX_SWITCHER_CODEX_HOME when the Codex home is not
 # the default $HOME/.codex.
 codex_home=${CODEX_SWITCHER_CODEX_HOME:-$HOME/.codex}
-litellm_manager="$codex_home/litellm/manage.py"
-litellm_python="$codex_home/litellm/venv/bin/python"
 script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
 deepseek_direct_catalog="$codex_home/deepseek-direct-models.json"
 deepseek_direct_catalog_source="${CODEX_SWITCHER_DEEPSEEK_MODELS_JSON:-}"
@@ -94,13 +94,6 @@ die() {
   exit 1
 }
 
-is_deepseek_profile() {
-  case "$1" in
-    deepseek-pro|deepseek-flash) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 is_deepseek_direct_profile() {
   case "$1" in
     deepseek-direct-flash|deepseek-direct-pro|deepseek-official-flash|deepseek-official-pro)
@@ -118,18 +111,11 @@ deepseek_direct_model() {
   esac
 }
 
-deepseek_legacy_profile() {
-  case "$1" in
-    deepseek-direct-flash|deepseek-official-flash) printf '%s\n' "deepseek-flash" ;;
-    deepseek-direct-pro|deepseek-official-pro) printf '%s\n' "deepseek-pro" ;;
-    *) return 1 ;;
-  esac
-}
-
-read_bearer_token() {
+toml_value() {
   file=$1
+  key=$2
   [ -f "$file" ] || return 1
-  sed -n 's/^[[:space:]]*experimental_bearer_token[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$file" | sed -n '1p'
+  sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$file" | sed -n '1p'
 }
 
 key_is_placeholder() {
@@ -160,14 +146,7 @@ deepseek_direct_key_for() {
     return 0
   fi
 
-  key=$(read_bearer_token "$target" || true)
-  if ! key_is_placeholder "$key"; then
-    printf '%s\n' "$key"
-    return 0
-  fi
-
-  legacy=$(deepseek_legacy_profile "$profile")
-  key=$(read_bearer_token "$codex_home/$legacy.config.toml" || true)
+  key=$(toml_value "$target" experimental_bearer_token || true)
   if ! key_is_placeholder "$key"; then
     printf '%s\n' "$key"
     return 0
@@ -215,18 +194,187 @@ ensure_deepseek_direct_profile() {
   fi
 }
 
-start_deepseek_proxy() {
-  profile_file=$1
-  [ -x "$litellm_python" ] || die "LiteLLM 运行环境不存在：$litellm_python"
-  [ -f "$litellm_manager" ] || die "LiteLLM 管理器不存在：$litellm_manager"
-  "$litellm_python" "$litellm_manager" ensure "$profile_file"
+write_profile_template() {
+  name=$1
+  target="$codex_home/$name.config.toml"
+  tmp="$target.codex-switcher-tmp.$$"
+  mkdir -p "$codex_home"
+  {
+    printf 'model_provider = "openai-proxy"\n'
+    printf 'model = "gpt-5.5"\n'
+    printf 'review_model = "gpt-5.5"\n'
+    printf 'model_reasoning_effort = "xhigh"\n'
+    printf 'disable_response_storage = true\n'
+    printf 'network_access = "enabled"\n'
+    printf 'model_catalog_json = "%s-models.json"\n' "$name"
+    printf '\n'
+    printf '[model_providers.openai-proxy]\n'
+    printf 'name = "OpenAI 兼容中转"\n'
+    printf 'base_url = "https://你的中转站/v1"\n'
+    printf 'wire_api = "responses"\n'
+    printf 'requires_openai_auth = true\n'
+    printf 'experimental_bearer_token = "<你的Key>"\n'
+  } > "$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$target"
 }
 
-stop_deepseek_proxy() {
-  if [ -x "$litellm_python" ] && [ -f "$litellm_manager" ]; then
-    if ! "$litellm_python" "$litellm_manager" stop; then
-      echo "警告：未能停止 LiteLLM；仍将继续切换到官方 Codex。" >&2
+sync_models() {
+  name=$1
+  case "$name" in
+    official|default|reset|restore)
+      echo "错误：内置 Profile 不需要同步模型。" >&2
+      return 1
+      ;;
+  esac
+  if is_deepseek_direct_profile "$name"; then
+    echo "错误：DeepSeek 直连 Profile（$name）使用自带模型目录，不需要 sync-models。" >&2
+    return 1
+  fi
+
+  profile_file="$codex_home/$name.config.toml"
+  [ -f "$profile_file" ] || { echo "错误：不存在 profile：$name" >&2; return 1; }
+
+  base_url=$(toml_value "$profile_file" base_url || true)
+  [ -n "$base_url" ] || {
+    echo "错误：Profile $name 未配置 base_url，请先 codex-switcher edit $name 填写中转站地址。" >&2
+    return 1
+  }
+
+  key=$(toml_value "$profile_file" experimental_bearer_token || true)
+  if key_is_placeholder "$key"; then
+    env_key_name=$(toml_value "$profile_file" env_key || true)
+    if [ -n "$env_key_name" ]; then
+      key=$(printenv "$env_key_name" 2>/dev/null || true)
     fi
+  fi
+  if key_is_placeholder "$key"; then
+    echo "错误：Profile $name 未配置有效 Key（experimental_bearer_token 或 env_key）。" >&2
+    return 1
+  fi
+
+  command -v curl >/dev/null 2>&1 || { echo "错误：需要 curl 才能同步模型。" >&2; return 1; }
+  command -v python3 >/dev/null 2>&1 || { echo "错误：需要 python3 才能同步模型（用于合并 JSON）。" >&2; return 1; }
+
+  case "$base_url" in
+    */) base_url=${base_url%/} ;;
+  esac
+  models_url="${base_url}/models"
+
+  tmp="$codex_home/.$name-sync.$$"
+  rm -f "$tmp"
+  trap 'rm -f "$tmp"' EXIT HUP INT TERM
+
+  echo "正在查询模型列表：$models_url"
+  http_code=$(curl -sS -m 20 -o "$tmp" -w '%{http_code}' -H "Authorization: Bearer $key" "$models_url" || true)
+  if [ -z "$http_code" ]; then
+    echo "错误：无法连接 $models_url（网络/代理/DNS）。" >&2
+    return 1
+  fi
+  if [ "$http_code" != "200" ]; then
+    echo "错误：查询 $models_url 失败（HTTP $http_code）。" >&2
+    case "$http_code" in
+      404) echo "  该中转站未实现 GET /models；本工具要求中转站支持 OpenAI 兼容的 /models 接口。" >&2 ;;
+      401|403) echo "  中转站拒绝访问：Key 无效或没有权限，请检查 experimental_bearer_token。" >&2 ;;
+    esac
+    echo "  可向中转站确认支持的模型列表后手工配置模型目录。" >&2
+    return 1
+  fi
+  [ -s "$tmp" ] || { echo "错误：$models_url 返回空响应。" >&2; return 1; }
+
+  ids=$(python3 -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    raise SystemExit(2)
+print("\n".join(str(x.get("id","")) for x in d.get("data",[]) if x.get("id")))
+' "$tmp" 2>/dev/null) || {
+    echo "错误：无法解析 $models_url 的响应（不是标准 OpenAI /models JSON）。" >&2
+    return 1
+  }
+  [ -n "$ids" ] || { echo "错误：$models_url 返回的模型列表为空（data 为空）。" >&2; return 1; }
+
+  CODEX_SWITCHER_PROFILE="$name" CODEX_SWITCHER_HOME="$codex_home" CODEX_SWITCHER_IDS="$ids" python3 <<'PY'
+import json, os, shutil
+
+name = os.environ["CODEX_SWITCHER_PROFILE"]
+codex_home = os.environ["CODEX_SWITCHER_HOME"]
+catalog_path = os.path.join(codex_home, name + "-models.json")
+ids = [line for line in os.environ.get("CODEX_SWITCHER_IDS", "").split() if line]
+EXCLUDE = {"codex-auto-review"}
+
+source_files = [
+    os.path.join(codex_home, "models_cache.json"),
+    os.path.join(codex_home, "deepseek-direct-models.json"),
+    catalog_path,
+]
+by_slug = {}
+for p in source_files:
+    if not os.path.exists(p):
+        continue
+    try:
+        with open(p) as f:
+            models = json.load(f).get("models", [])
+    except Exception:
+        continue
+    for m in models:
+        by_slug.setdefault(m.get("slug"), m)
+
+existing = {}
+if os.path.exists(catalog_path):
+    try:
+        with open(catalog_path) as f:
+            for m in json.load(f).get("models", []):
+                existing[m.get("slug")] = m
+    except Exception:
+        pass
+
+added, skipped = [], []
+for mid in ids:
+    if mid in EXCLUDE:
+        skipped.append((mid, "非用户可选模型"))
+        continue
+    if mid in existing:
+        continue
+    entry = by_slug.get(mid)
+    if entry is None:
+        skipped.append((mid, "无完整条目（models_cache.json / deepseek-direct-models.json 均无）"))
+        continue
+    existing[mid] = entry
+    added.append(mid)
+
+models = sorted(existing.values(), key=lambda m: m.get("priority", 0), reverse=True)
+
+if added or not os.path.exists(catalog_path):
+    if os.path.exists(catalog_path):
+        shutil.copy(catalog_path, catalog_path + ".bak")
+    with open(catalog_path, "w") as f:
+        json.dump({"models": models}, f, ensure_ascii=False, indent=1)
+    os.chmod(catalog_path, 0o600)
+
+if added:
+    print("新增 %d 个模型：%s" % (len(added), "、".join(added)))
+else:
+    print("没有需要新增的模型。")
+for mid, reason in skipped:
+    print("跳过：%s（%s）" % (mid, reason))
+print("模型目录：%s（共 %d 个）" % (catalog_path, len(models)))
+print("/model 可用模型：" + "、".join(m.get("slug", "?") for m in models))
+PY
+  rc=$?
+  [ "$rc" -eq 0 ] || return 1
+
+  if ! grep -Eq '^[[:space:]]*model_catalog_json[[:space:]]*=' "$profile_file"; then
+    cp "$profile_file" "$profile_file.bak"
+    tmp2="$profile_file.codex-switcher-tmp.$$"
+    {
+      printf 'model_catalog_json = "%s-models.json"\n' "$name"
+      cat "$profile_file"
+    } > "$tmp2"
+    chmod 600 "$tmp2"
+    mv "$tmp2" "$profile_file"
+    echo "已为 $profile_file 补上 model_catalog_json 配置。"
   fi
   return 0
 }
@@ -241,8 +389,6 @@ prepare_official_environment() {
 
 prepare_provider_environment() {
   unset DEEPSEEK_API_KEY
-  unset LITELLM_API_KEY
-  unset LITELLM_PROXY_API_KEY
   unset ANTHROPIC_BASE_URL
   unset ANTHROPIC_AUTH_TOKEN
   unset OPENAI_BASE_URL
@@ -258,7 +404,7 @@ valid_name() {
 
 reserved_name() {
   case "$1" in
-    list|create|edit|delete|remove|rm|official|default|reset|restore|help|version)
+    list|create|edit|delete|remove|rm|sync-models|official|default|reset|restore|help|version)
       return 0 ;;
     *) return 1 ;;
   esac
@@ -282,15 +428,18 @@ usage() {
   codex-switcher official                使用默认/官方配置启动 Codex
   codex-switcher vscode <名称>           带指定供应商环境启动 VS Code Codex
   codex-switcher list                    列出已有 profile
-  codex-switcher create <名称>           创建新的 profile（不会覆盖已有文件）
-  codex-switcher edit <名称>             用 vim/指定编辑器打开对应 TOML
+  codex-switcher create <名称>           创建新的 profile（干净模板，不会复制主配置）
+  codex-switcher edit <名称>             用 vim/指定编辑器打开对应 TOML，退出后自动同步模型
+  codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
   codex-switcher delete <名称> [--yes]   删除一个 profile（默认需要确认）
   codex-switcher <名称> [Codex参数...]   启动指定 profile
 
 官方回退别名：official、default、reset、restore
-DeepSeek 直连：deepseek-direct-flash / deepseek-direct-pro 不经过 LiteLLM。
-DeepSeek 旧桥接：deepseek-pro / deepseek-flash 会自动启动本机 LiteLLM；切回官方或直连会停止它。
-注意：停止代理会中断仍在运行的旧桥接 DeepSeek Codex 会话。
+DeepSeek 直连：deepseek-direct-flash / deepseek-direct-pro 使用自带模型目录。
+普通 Profile（OpenAI 兼容中转）：create 生成干净模板，edit 填写 base_url 与 Key，
+  退出编辑或执行 sync-models 时自动查询 <base_url>/models 并生成 <名称>-models.json，
+  让 /model 可直接切换该中转站支持的所有模型（只增不减、自动备份、权限 600）。
+环境变量：CODEX_SWITCHER_NO_AUTO_SYNC=1 可关闭自动同步，只保留手动 sync-models。
 编辑器：优先使用 CODEX_SWITCHER_EDITOR，其次 VISUAL/EDITOR，默认 vim
 profile：<Codex 主目录>/<名称>.config.toml（默认 ~/.codex，可用 CODEX_SWITCHER_CODEX_HOME 覆盖）
 认证文件 ~/.codex/auth.json 不会被复制、删除或切换。
@@ -306,7 +455,7 @@ case "${1:-}" in
     exit 0
     ;;
   -V|--version|version)
-    echo "codex-switcher 2.1.0"
+    echo "codex-switcher 3.0.0"
     exit 0
     ;;
   list)
@@ -319,12 +468,17 @@ case "${1:-}" in
     reserved_name "$name" && die "名称 '$name' 是保留命令名，请换一个 profile 名称。"
     target="$codex_home/$name.config.toml"
     [ -e "$target" ] && die "profile 已存在，不会覆盖：$target"
-    [ -f "$codex_home/config.toml" ] || die "找不到基础配置：$codex_home/config.toml"
-    mkdir -p "$codex_home"
-    cp "$codex_home/config.toml" "$target"
-    chmod 600 "$target"
-    echo "已创建 $target"
-    echo "请执行：codex-switcher edit $name"
+    write_profile_template "$name"
+    echo "已创建干净模板：$target"
+    echo "下一步：codex-switcher edit $name  填写 base_url 与 Key；退出编辑后会自动同步模型目录。"
+    exit 0
+    ;;
+
+  sync-models)
+    name=${2:-}
+    [ -n "$name" ] || die "请指定 profile 名称，例如：codex-switcher sync-models provider-a"
+    valid_name "$name" || die "无效 profile 名称。"
+    sync_models "$name"
     exit 0
     ;;
   edit)
@@ -342,7 +496,27 @@ case "${1:-}" in
     editor=${CODEX_SWITCHER_EDITOR:-${VISUAL:-${EDITOR:-vim}}}
     editor_bin=$(command -v "$editor" 2>/dev/null || true)
     [ -n "$editor_bin" ] || die "找不到编辑器 '$editor'。可设置 CODEX_SWITCHER_EDITOR，或安装 vim。"
-    exec "$editor_bin" "$target"
+    "$editor_bin" "$target"
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+      exit "$rc"
+    fi
+    case "$name" in
+      official|default|reset|restore) exit 0 ;;
+    esac
+    if is_deepseek_direct_profile "$name"; then
+      exit 0
+    fi
+    if [ "${CODEX_SWITCHER_NO_AUTO_SYNC:-0}" != "1" ]; then
+      echo "编辑完成，正在同步模型目录..."
+      if sync_models "$name"; then
+        echo "模型目录同步完成。"
+      else
+        echo "错误：模型同步失败；请根据上面的提示修复，或稍后执行 codex-switcher sync-models $name。" >&2
+        exit 1
+      fi
+    fi
+    exit 0
     ;;
   delete|remove|rm)
     name=${2:-}
@@ -383,7 +557,6 @@ case "${1:-}" in
 
     case "$name" in
       official|default|reset|restore)
-        stop_deepseek_proxy
         prepare_official_environment
         vscode_home="$codex_home"
         ;;
@@ -391,13 +564,9 @@ case "${1:-}" in
         profile_file="$codex_home/$name.config.toml"
         if is_deepseek_direct_profile "$name"; then
           ensure_deepseek_direct_profile "$name" launch
-          stop_deepseek_proxy
           prepare_provider_environment
         fi
         [ -f "$profile_file" ] || die "不存在 profile：$name"
-        if is_deepseek_profile "$name"; then
-          start_deepseek_proxy "$profile_file"
-        fi
         vscode_home="$codex_home/codex-switcher-vscode/$name"
         mkdir -p "$vscode_home"
         cp "$profile_file" "$vscode_home/config.toml"
@@ -432,9 +601,8 @@ case "${1:-}" in
     fi
     ;;
   official|default|reset|restore)
-    stop_deepseek_proxy
     prepare_official_environment
-    echo "已清理 DeepSeek/LiteLLM 状态，正在使用官方 OpenAI Codex。"
+    echo "已清理第三方 Provider 环境，正在使用官方 OpenAI Codex。"
     unset ELECTRON_RUN_AS_NODE
     shift
     CODEX_HOME="$codex_home" exec "$codex_bin" \
@@ -472,14 +640,25 @@ valid_name "$profile" || die "无效 profile 名称。"
 reserved_name "$profile" && die "'$profile' 是保留命令名，请使用 codex-switcher official 或换一个 profile 名称。"
 if is_deepseek_direct_profile "$profile"; then
   ensure_deepseek_direct_profile "$profile" launch
-  stop_deepseek_proxy
   prepare_provider_environment
 fi
 target="$codex_home/$profile.config.toml"
 [ -f "$target" ] || die "不存在 profile：$profile"
 
-if is_deepseek_profile "$profile"; then
-  start_deepseek_proxy "$target"
+# 普通 Profile：模型目录不存在时自动同步一次（不每次同步）
+if [ "${CODEX_SWITCHER_NO_AUTO_SYNC:-0}" != "1" ] && ! is_deepseek_direct_profile "$profile"; then
+  case "$profile" in
+    official|default|reset|restore) ;;
+    *)
+      if [ ! -f "$codex_home/$profile-models.json" ]; then
+        if sync_models "$profile"; then
+          echo "已自动生成模型目录：$codex_home/$profile-models.json"
+        else
+          echo "警告：模型同步失败，/model 可能不可用；可执行 codex-switcher sync-models $profile 重试。" >&2
+        fi
+      fi
+      ;;
+  esac
 fi
 
 unset ELECTRON_RUN_AS_NODE

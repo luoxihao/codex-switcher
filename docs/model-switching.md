@@ -1,7 +1,13 @@
 # 模型目录与 `/model` 切换
 
 > 本文记录「API（中转站）支持多个模型，但 Codex CLI 里 `/model` 切不了」的完整实现与排查过程。
-> 不依赖任何脚本：只需要按下面的文件结构、TOML 内容、models.json 内容手工改配置即可。
+
+> [!IMPORTANT]
+> **前置要求（支持范围）**：本工具（codex-switcher）只支持 OpenAI 兼容中转站——中转站必须实现：
+> - `GET /v1/models`：查询模型列表（`sync-models` 依赖它自动发现模型）；
+> - `POST /v1/responses`：Responses API（Codex CLI 的 `wire_api = "responses"` 依赖它）。
+>
+> 只提供 `/v1/chat/completions` 或没有 `/models` 接口的中转站无法直接使用本工具。
 
 ## 现象
 
@@ -33,6 +39,22 @@ Codex CLI 的 `/model`（以及 `codex models`）只列出 **模型目录**（`m
 └── docs/
     └── model-switching.md        # 本文
 ```
+
+## 自动同步：添加 API 后工具做了什么
+
+本工具已内置自动发现与配置，添加中转站后不需要手工复制条目：
+
+```text
+codex-switcher create my-api       # 生成干净模板（含 model_catalog_json = "my-api-models.json"）
+codex-switcher edit my-api         # 填 base_url + Key，退出后自动 sync-models
+   └─ 查询 <base_url>/models → 匹配完整条目 → 合并进 my-api-models.json（只增不减、备份 .bak、权限 600）
+codex-switcher my-api              # 启动；模型目录不存在时才自动同步一次（不每次同步）
+```
+
+- 完整条目来源（按顺序查找）：`~/.codex/models_cache.json`（官方模型缓存）、`~/.codex/deepseek-direct-models.json`（DeepSeek 直连目录）、现有模型目录（保留手工加的条目）。
+- 判定「哪些模型能用」：`/models` 返回的 ID 能在上述来源里匹配到完整条目即登记；`codex-auto-review` 等非用户可选模型跳过；匹配不到的中转站别名/旧模型跳过并在终端列出。
+- `CODEX_SWITCHER_NO_AUTO_SYNC=1` 关闭自动同步，只保留手动 `codex-switcher sync-models <名称>`。
+- 下面的「手工操作步骤」是自动同步不可用（例如中转站没有 `/models`）时的兜底方法。
 
 ## Profile TOML 内容（`~/.codex/codex-5288.config.toml`）
 
@@ -188,7 +210,7 @@ curl -sS -H "Authorization: Bearer <你的Key>" "${base_url}/models"
 | 对 `/models` 做鉴权 / 白名单 / 套餐限制 | `401` / `403`，或返回空 `data: []` | ❌ 不能（或查不全） |
 | 只代理固定几个模型、不暴露模型列表 | `404` 或空列表 | ❌ 不能 |
 | 模型名做了别名映射（返回名 ≠ 上游官方名） | `200`，但 `data[].id` 是别名 | ⚠️ 能查，但 `slug` 必须以它返回的为准 |
-| 只兼容 `/v1/chat/completions`，不兼容 Responses API | `/models` 可能正常，但 Codex 实际调用失败 | ⚠️ 能查模型，但 `wire_api="responses"` 接不上，需要协议转换层（如 LiteLLM） |
+| 只兼容 `/v1/chat/completions`，不兼容 Responses API | `/models` 可能正常，但 Codex 实际调用失败 | ⚠️ 能查模型，但 `wire_api="responses"` 接不上；本工具不支持，需要第三方协议转换层 |
 
 **能查**：按上一节的命令拿到 `data[].id`，把要用的模型补进模型目录，`/model` 即可切换。
 

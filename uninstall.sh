@@ -10,13 +10,7 @@ set -eu
 bin_dir=${CODEX_SWITCHER_BIN_DIR:-$HOME/.local/bin}
 codex_home_dir=${CODEX_SWITCHER_CODEX_HOME:-${CODEX_HOME:-$HOME/.codex}}
 
-# 先尝试停止 codex-switcher 管理的 LiteLLM，避免留下孤儿进程。
 # 卸载不删除 ~/.codex 下的 Profile TOML、auth.json、config.toml 等用户数据。
-if [ -x "$bin_dir/codex-switcher" ]; then
-  echo "正在停止 codex-switcher 管理的 LiteLLM..."
-  "$bin_dir/codex-switcher" official >/dev/null 2>&1 || true
-fi
-
 removed=0
 for target in \
   "$bin_dir/codex-switcher" \
