@@ -16,7 +16,7 @@ for target in \
   "$bin_dir/codex-switcher" \
   "$codex_home_dir/bin/codex-switcher" \
   "$codex_home_dir/codex-switcher-package/bin/codex-switcher" \
-  "$codex_home_dir/deepseek-direct-models.json"; do
+  "$codex_home_dir/deepseek-models.json"; do
   if [ -f "$target" ]; then
     rm -f "$target"
     removed=1

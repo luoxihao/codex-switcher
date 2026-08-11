@@ -51,7 +51,7 @@ codex-switcher edit my-api         # 填 base_url + Key，退出后自动 sync-m
 codex-switcher my-api              # 启动；模型目录不存在时才自动同步一次（不每次同步）
 ```
 
-- 完整条目来源（按顺序查找）：`~/.codex/models_cache.json`（官方模型缓存）、`~/.codex/deepseek-direct-models.json`（DeepSeek 直连目录）、现有模型目录（保留手工加的条目）。
+- 完整条目来源（按顺序查找）：`~/.codex/models_cache.json`（官方模型缓存）、`~/.codex/deepseek-models.json`（DeepSeek 模型来源目录）、现有模型目录（保留手工加的条目）。
 - 判定「哪些模型能用」：`/models` 返回的 ID 能在上述来源里匹配到完整条目即登记；`codex-auto-review` 等非用户可选模型跳过；匹配不到的中转站别名/旧模型跳过并在终端列出。
 - `CODEX_SWITCHER_NO_AUTO_SYNC=1` 关闭自动同步，只保留手动 `codex-switcher sync-models <名称>`。
 - 下面的「手工操作步骤」是自动同步不可用（例如中转站没有 `/models`）时的兜底方法。

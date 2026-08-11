@@ -19,11 +19,11 @@ if [ -d "$codex_home_dir/codex-switcher-package/bin" ]; then
   echo "已同步 Codex package 命令：$codex_home_dir/codex-switcher-package/bin/codex-switcher"
 fi
 
-if [ -f "$package_dir/assets/deepseek-direct-models.json" ]; then
+if [ -f "$package_dir/assets/deepseek-models.json" ]; then
   mkdir -p "$codex_home_dir"
-  install -m 0600 "$package_dir/assets/deepseek-direct-models.json" \
-    "$codex_home_dir/deepseek-direct-models.json"
-  echo "已安装 DeepSeek 直连模型目录：$codex_home_dir/deepseek-direct-models.json"
+  install -m 0600 "$package_dir/assets/deepseek-models.json" \
+    "$codex_home_dir/deepseek-models.json"
+  echo "已安装 DeepSeek 模型来源目录：$codex_home_dir/deepseek-models.json"
 fi
 
 add_path=1

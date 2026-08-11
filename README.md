@@ -68,22 +68,22 @@ sh install.sh
 # 查看已有哪些 Profile
 codex-switcher list
 
-# 启动 DeepSeek 官方直连（推荐）
-codex-switcher deepseek-direct-flash
-codex-switcher deepseek-direct-pro
-
 # 添加 OpenAI 兼容中转站（示例：创建 → 编辑填 base_url/Key → 自动同步模型）
 codex-switcher create my-api
 codex-switcher edit my-api
 
-# 恢复最近的 DeepSeek 直连会话
-codex-switcher deepseek-direct-flash resume --last
+# 添加 DeepSeek（同一个通用流程；同步后 flash/pro 都在 /model 里切换）
+codex-switcher create deepseek
+codex-switcher edit deepseek
+
+# 恢复最近一次会话
+codex-switcher my-api resume --last
 
 # 强制停止代理并返回官方 Codex
 codex-switcher official
 ```
 
-`deepseek-direct-*` 是预置 Profile 名称；它们对应的 TOML 会在首次编辑 Key 时创建（见[配置 DeepSeek Key](#配置-deepseek-key)）。普通中转站 Profile 用 `create` 生成干净模板（见 [Profile 管理](#profile-管理)）。
+所有第三方 Provider（包括 DeepSeek）都走同一个通用流程：`create` 生成干净模板 → `edit` 填 `base_url` 与 Key → 退出后自动同步模型目录（见 [配置 DeepSeek Key](#配置-deepseek-key) 与 [Profile 管理](#profile-管理)）。
 
 ## 安装 / 更新 / 卸载
 
@@ -97,7 +97,7 @@ sh ~/codex-switcher/install.sh
 
 1. 把 `bin/codex-switcher` 安装到 `~/.local/bin/codex-switcher`。
 2. 如果 Codex 主目录下存在 `bin/` 或 `codex-switcher-package/bin/`，同步一份命令过去。
-3. 安装 DeepSeek 直连模型目录到 Codex 主目录。
+3. 安装 DeepSeek 模型来源目录（`deepseek-models.json`）到 Codex 主目录。
 4. 如尚未配置，向 shell 启动文件追加 `~/.local/bin` 的 `PATH`。
 
 不希望修改 shell 配置时：
@@ -127,7 +127,7 @@ flowchart LR
     A[终端命令] --> B{启动方式}
     B -->|codex| C[官方 config.toml]
     C --> D[OpenAI Codex]
-    B -->|codex-switcher deepseek-direct-flash/pro| E[DeepSeek Direct Profile]
+    B -->|codex-switcher deepseek| E[DeepSeek Profile（同通用流程，自动同步模型）]
     E --> H[DeepSeek API]
     B -->|codex-switcher my-api| F[OpenAI 兼容中转 Profile]
     F -->|sync-models 查询 /models| G[生成模型目录]
@@ -153,9 +153,8 @@ flowchart LR
 | 目的 | 命令 |
 |---|---|
 | 官方 Codex | `codex` |
-| DeepSeek Flash 直连 | `codex-switcher deepseek-direct-flash` |
-| DeepSeek Pro 直连 | `codex-switcher deepseek-direct-pro` |
 | 添加中转站 Profile | `codex-switcher create my-api` + `codex-switcher edit my-api` |
+| 添加 DeepSeek | `codex-switcher create deepseek` + `codex-switcher edit deepseek` |
 | 同步中转站模型 | `codex-switcher sync-models my-api` |
 | 强制返回官方 | `codex-switcher official` |
 | 查看 Profile | `codex-switcher list` |
@@ -169,43 +168,35 @@ flowchart LR
 > [!IMPORTANT]
 > Key 是持久写入 TOML，不是临时环境变量。保存后关闭终端或重启电脑仍然有效。
 
-### 配置文件位置
-
-Codex 主目录（默认 `~/.codex`）下的 Profile TOML：
-
-```text
-~/.codex/deepseek-direct-pro.config.toml
-~/.codex/deepseek-direct-flash.config.toml
-```
-
-### 编辑 Key
+### 创建并填写
 
 ```bash
-codex-switcher edit deepseek-direct-flash
-codex-switcher edit deepseek-direct-pro
+codex-switcher create deepseek
+codex-switcher edit deepseek
 ```
 
-直连 Profile 使用：
+`edit` 打开 `~/.codex/deepseek.config.toml`，把模板里的 `base_url` 和 `experimental_bearer_token` 改成你的地址与 Key：
 
 ```toml
-[model_providers.deepseek-direct]
-name = "DeepSeek Direct"
-base_url = "https://api.deepseek.com/"
+[model_providers.openai-proxy]
+name = "OpenAI 兼容中转"
+base_url = "https://api.deepseek.com"          # DeepSeek 官方；其他中转站换成自己的
 wire_api = "responses"
-requires_openai_auth = false
-supports_websockets = false
-experimental_bearer_token = "在这里填写真实 DeepSeek API Key"
+requires_openai_auth = true
+experimental_bearer_token = "在这里填写真实 Key"
 ```
+
+退出编辑器后会自动执行 `sync-models deepseek`：查询 `https://api.deepseek.com/models`，把 `deepseek-v4-flash`、`deepseek-v4-pro` 等模型写入 `~/.codex/deepseek-models.json`，之后在 `/model` 里直接切换即可，**不需要再建 flash / pro 两个 Profile**。
 
 如果使用 Vim：
 
 1. 按 `i` 进入编辑模式。
-2. 替换 `experimental_bearer_token` 引号内的内容。
+2. 替换 `base_url` 与 `experimental_bearer_token` 引号内的内容。
 3. 按 `Esc`。
-4. 输入 `:wq` 并回车。
+4. 输入 `:wq` 并回车（退出后自动同步）。
 
 > [!NOTE]
-> Key 持久写入 TOML。可以填写同一个 DeepSeek Key，也可以填写不同 Key。
+> Key 持久写入 TOML。可以填写同一个 Key，也可以不同 Profile 填不同 Key。
 
 > [!WARNING]
 > 不要把真实 Key 写进本文档、复制到公共目录或提交到 Git。
@@ -215,8 +206,8 @@ experimental_bearer_token = "在这里填写真实 DeepSeek API Key"
 不需要下面的临时写法：
 
 ```bash
-# 不需要这样启动 DeepSeek
-DEEPSEEK_API_KEY='你的密钥' codex-switcher deepseek-direct-flash
+# 不需要这样启动
+OPENAI_API_KEY='你的密钥' codex-switcher deepseek
 ```
 
 启动器会从对应 TOML 的 `experimental_bearer_token` 读取 Key，并且不会在终端中打印它。
@@ -226,36 +217,33 @@ DEEPSEEK_API_KEY='你的密钥' codex-switcher deepseek-direct-flash
 ### 启动
 
 ```bash
-codex-switcher deepseek-direct-flash
-codex-switcher deepseek-direct-pro
+codex-switcher deepseek
+codex-switcher my-api
 ```
 
 启动器会自动：
 
 1. 检查对应 Profile 和 Key。
-2. 对直连 Profile 安装 DeepSeek 模型目录。
+2. 若模型目录不存在，自动同步一次（`sync-models`）。
 3. 使用对应 Profile 启动 Codex。
 
 ### 恢复会话
 
 ```bash
 # 打开会话选择器
-codex-switcher deepseek-direct-flash resume
-codex-switcher deepseek-direct-pro resume
+codex-switcher deepseek resume
 
 # 恢复最近一次会话
-codex-switcher deepseek-direct-flash resume --last
-codex-switcher deepseek-direct-pro resume --last
+codex-switcher deepseek resume --last
 
 # 按会话 ID 恢复
-codex-switcher deepseek-direct-flash resume <SESSION_ID>
-codex-switcher deepseek-direct-pro resume <SESSION_ID>
+codex-switcher deepseek resume <SESSION_ID>
 ```
 
 > [!CAUTION]
 > 不要用普通 `codex resume` 恢复 DeepSeek 会话。恢复时继续使用创建该会话的原 Profile。
 
-即使中间执行过 `codex-switcher official`，DeepSeek 恢复命令也会重新准备对应直连模型目录。
+即使中间执行过 `codex-switcher official`，恢复命令也会重新准备对应 Profile 的模型目录。
 
 ## Codex 命令兼容性
 
@@ -271,20 +259,20 @@ codex --profile <profile> ...
 
 | 功能 | 示例 |
 |---|---|
-| 交互式 Codex | `codex-switcher deepseek-direct-flash` |
-| 非交互任务 | `codex-switcher deepseek-direct-flash exec "检查项目"` |
-| 非交互任务别名 | `codex-switcher deepseek-direct-flash e "运行测试"` |
-| 代码审查 | `codex-switcher deepseek-direct-flash review` |
-| 恢复会话 | `codex-switcher deepseek-direct-flash resume --last` |
-| 分叉会话 | `codex-switcher deepseek-direct-flash fork --last` |
-| 归档会话 | `codex-switcher deepseek-direct-flash archive <SESSION_ID>` |
-| 删除会话 | `codex-switcher deepseek-direct-flash delete <SESSION_ID>` |
-| 取消归档 | `codex-switcher deepseek-direct-flash unarchive <SESSION_ID>` |
-| Codex 沙箱 | `codex-switcher deepseek-direct-flash sandbox --help` |
-| MCP 管理 | `codex-switcher deepseek-direct-flash mcp --help` |
-| 指定目录 | `codex-switcher deepseek-direct-flash -C /path/to/project` |
-| 指定沙箱 | `codex-switcher deepseek-direct-flash --sandbox read-only` |
-| Debug prompt-input | `codex-switcher deepseek-direct-flash debug prompt-input --help` |
+| 交互式 Codex | `codex-switcher my-api` |
+| 非交互任务 | `codex-switcher my-api exec "检查项目"` |
+| 非交互任务别名 | `codex-switcher my-api e "运行测试"` |
+| 代码审查 | `codex-switcher my-api review` |
+| 恢复会话 | `codex-switcher my-api resume --last` |
+| 分叉会话 | `codex-switcher my-api fork --last` |
+| 归档会话 | `codex-switcher my-api archive <SESSION_ID>` |
+| 删除会话 | `codex-switcher my-api delete <SESSION_ID>` |
+| 取消归档 | `codex-switcher my-api unarchive <SESSION_ID>` |
+| Codex 沙箱 | `codex-switcher my-api sandbox --help` |
+| MCP 管理 | `codex-switcher my-api mcp --help` |
+| 指定目录 | `codex-switcher my-api -C /path/to/project` |
+| 指定沙箱 | `codex-switcher my-api --sandbox read-only` |
+| Debug prompt-input | `codex-switcher my-api debug prompt-input --help` |
 
 > [!WARNING]
 > `delete` 会永久删除指定会话，使用前确认会话 ID。
@@ -313,9 +301,9 @@ codex --profile <profile> ...
 错误示例：
 
 ```bash
-codex-switcher deepseek-direct-flash login status
-codex-switcher deepseek-direct-flash doctor
-codex-switcher deepseek-direct-flash update
+codex-switcher my-api login status
+codex-switcher my-api doctor
+codex-switcher my-api update
 ```
 
 正确示例：
@@ -379,7 +367,7 @@ requires_openai_auth = true
 experimental_bearer_token = "<你的Key>"          # 必填
 ```
 
-`edit` 退出后自动执行 `sync-models`：查询 `<base_url>/models`，把能匹配到完整条目（来源：`~/.codex/models_cache.json`、`~/.codex/deepseek-direct-models.json`、现有模型目录）的模型合并进 `<名称>-models.json`（只增不减、写前备份 `.bak`、权限 600），并补上缺失的 `model_catalog_json`。启动 Profile 时若模型目录不存在也会自动同步一次；`CODEX_SWITCHER_NO_AUTO_SYNC=1` 可关闭自动同步。
+`edit` 退出后自动执行 `sync-models`：查询 `<base_url>/models`，把能匹配到完整条目（来源：`~/.codex/models_cache.json`、`~/.codex/deepseek-models.json`、现有模型目录）的模型合并进 `<名称>-models.json`（只增不减、写前备份 `.bak`、权限 600），并补上缺失的 `model_catalog_json`。启动 Profile 时若模型目录不存在也会自动同步一次；`CODEX_SWITCHER_NO_AUTO_SYNC=1` 可关闭自动同步。
 
 <details>
 <summary><strong>其他普通第三方 Provider 配置</strong></summary>
@@ -426,7 +414,7 @@ model_catalog_json = "<名称>-models.json"   # 模型目录，相对 ~/.codex
 > [!IMPORTANT]
 > API 支持某模型，不等于 `/model` 里能选它。目录里没登记的模型无法在 `/model` 切换。
 
-本工具在添加 API 后自动处理：`create` 生成干净模板 → `edit` 退出（或手动 `sync-models <名称>`）查询中转站 `<base_url>/models`，把能匹配到完整条目（来源：`~/.codex/models_cache.json`、`~/.codex/deepseek-direct-models.json`）的模型合并进 `<名称>-models.json`，`/model` 即可切换。
+本工具在添加 API 后自动处理：`create` 生成干净模板 → `edit` 退出（或手动 `sync-models <名称>`）查询中转站 `<base_url>/models`，把能匹配到完整条目（来源：`~/.codex/models_cache.json`、`~/.codex/deepseek-models.json`）的模型合并进 `<名称>-models.json`，`/model` 即可切换。
 
 - `/model` 切换只对当前会话生效；默认模型仍由 TOML 的 `model` 决定。
 - `review_model` 不跟随 `/model` 切换，需要单独修改。
@@ -440,8 +428,8 @@ model_catalog_json = "<名称>-models.json"   # 模型目录，相对 ~/.codex
 完全退出已有 VS Code 后运行：
 
 ```bash
-codex-switcher vscode deepseek-direct-pro
-codex-switcher vscode deepseek-direct-flash
+codex-switcher vscode deepseek
+codex-switcher vscode my-api
 codex-switcher vscode provider-a
 codex-switcher vscode official
 ```
@@ -491,7 +479,6 @@ codex-switcher restore
 | `CODEX_SWITCHER_EDITOR` | 编辑 Profile 的编辑器 | `$EDITOR` |
 | `CODEX_SWITCHER_CODEX_BIN` | 指定 codex 可执行文件路径 | 自动查找 |
 | `CODEX_SWITCHER_VSCODE_BIN` | 指定 VS Code 可执行文件路径 | 自动查找 |
-| `CODEX_SWITCHER_DEEPSEEK_MODELS_JSON` | DeepSeek 模型目录 JSON 的来源文件 | 仓库 `assets/` |
 | `CODEX_SWITCHER_NO_AUTO_SYNC` | 设为 `1` 时关闭自动同步（edit 退出 / 启动补全），只保留手动 `sync-models` | `0` |
 
 ## 故障排查
@@ -500,8 +487,8 @@ codex-switcher restore
 <summary><strong>Key 尚未填写</strong></summary>
 
 ```bash
-codex-switcher edit deepseek-direct-pro
-codex-switcher edit deepseek-direct-flash
+codex-switcher edit deepseek
+codex-switcher edit my-api
 ```
 
 确认 `experimental_bearer_token` 已保存，但不要在终端打印真实 Key。
@@ -539,7 +526,7 @@ codex-switcher sync-models <名称>
 - `HTTP 404`：中转站未实现 `GET /models`（本工具前置要求），改为向中转站确认模型列表后手工配置。
 - `HTTP 401/403`：Key 无效或没有权限，检查 Profile TOML 的 `experimental_bearer_token`。
 - 无法连接：检查网络 / 代理 / DNS，确认 `base_url` 可访问。
-- 返回空列表 / 模型无完整条目：该中转站模型不在本机模型缓存（`models_cache.json` / `deepseek-direct-models.json`）里，无法自动生成完整条目，需手工添加。
+- 返回空列表 / 模型无完整条目：该中转站模型不在本机模型缓存（`models_cache.json` / `deepseek-models.json`）里，无法自动生成完整条目，需手工添加。
 
 </details>
 
@@ -558,7 +545,7 @@ codex-switcher sync-models <名称>
 ├── install.sh
 ├── uninstall.sh
 ├── assets/
-│   └── deepseek-direct-models.json
+│   └── deepseek-models.json
 ├── bin/
 │   └── codex-switcher
 └── docs/
@@ -570,9 +557,8 @@ codex-switcher sync-models <名称>
 ~/.codex/                         # Codex 主目录（安装目标之一，用户数据）
 ├── auth.json                     # 官方 ChatGPT 登录
 ├── config.toml                   # 官方默认配置
-├── deepseek-direct-models.json   # DeepSeek 官方直连模型目录
-├── deepseek-direct-pro.config.toml
-├── deepseek-direct-flash.config.toml
+├── deepseek-models.json           # DeepSeek 模型来源目录（安装时提供）；若建 deepseek Profile，其模型目录即此文件
+├── deepseek.config.toml          # DeepSeek Profile（示例）
 ├── codex-5288.config.toml        # 自定义 OpenAI 兼容中转 Profile（示例）
 ├── codex-5288-models.json        # 该 Profile 的模型目录（sync-models 自动生成，示例）
 ```
@@ -592,12 +578,12 @@ Profile TOML 与 `auth.json` 属于机器相关的用户数据，**不在仓库�
 
    继承的 `CODEX_HOME` / `CODEX_SWITCHER_HOME` 被**有意忽略**，防止第三方 Provider 工具污染环境后“强制返回官方”失效；需要自定义主目录时，显式设置 `CODEX_SWITCHER_CODEX_HOME` 即可。
 
-3. **Profile 与 Key 不入库**：DeepSeek Profile TOML、`auth.json` 包含机器相关配置和密钥，换机器后重新编辑填写即可。
+3. **Profile 与 Key 不入库**：Profile TOML、`auth.json` 包含机器相关配置和密钥，换机器后重新编辑填写即可。
 
 ## 安全说明
 
 > [!WARNING]
-> - 不要提交 API Key、DeepSeek Profile 或 `auth.json`。
+> - 不要提交 API Key、Profile 或 `auth.json`。
 > - 不要删除或复制 `auth.json` 来切换 Provider。
 > - 安装后的命令默认位于 `~/.local/bin/codex-switcher`，请通过它使用，而不是直接执行仓库里的副本（安装器会处理同步）。
 > - 重新安装时使用 `~/codex-switcher/install.sh`，不要手工覆盖 Codex 主目录文件。
@@ -606,9 +592,7 @@ Profile TOML 与 `auth.json` 属于机器相关的用户数据，**不在仓库�
 Profile 权限：
 
 ```text
-600 ~/.codex/deepseek-direct-pro.config.toml
-600 ~/.codex/deepseek-direct-flash.config.toml
-600 ~/.codex/deepseek-direct-models.json
+600 ~/.codex/deepseek-models.json
 600 ~/.codex/<名称>.config.toml      # 任意普通 Profile
 600 ~/.codex/<名称>-models.json      # 自动生成的模型目录
 ```

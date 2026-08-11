@@ -12,19 +12,6 @@ set -eu
 # polluted. Override with CODEX_SWITCHER_CODEX_HOME when the Codex home is not
 # the default $HOME/.codex.
 codex_home=${CODEX_SWITCHER_CODEX_HOME:-$HOME/.codex}
-script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
-deepseek_direct_catalog="$codex_home/deepseek-direct-models.json"
-deepseek_direct_catalog_source="${CODEX_SWITCHER_DEEPSEEK_MODELS_JSON:-}"
-if [ -z "$deepseek_direct_catalog_source" ]; then
-  for candidate in \
-    "$script_dir/../assets/deepseek-direct-models.json" \
-    "$HOME/codex-switcher/assets/deepseek-direct-models.json"; do
-    if [ -f "$candidate" ]; then
-      deepseek_direct_catalog_source=$candidate
-      break
-    fi
-  done
-fi
 
 find_codex() {
   if [ -n "${CODEX_SWITCHER_CODEX_BIN:-}" ] && [ -x "$CODEX_SWITCHER_CODEX_BIN" ]; then
@@ -94,23 +81,6 @@ die() {
   exit 1
 }
 
-is_deepseek_direct_profile() {
-  case "$1" in
-    deepseek-direct-flash|deepseek-direct-pro|deepseek-official-flash|deepseek-official-pro)
-      return 0
-      ;;
-    *) return 1 ;;
-  esac
-}
-
-deepseek_direct_model() {
-  case "$1" in
-    deepseek-direct-flash|deepseek-official-flash) printf '%s\n' "deepseek-v4-flash" ;;
-    deepseek-direct-pro|deepseek-official-pro) printf '%s\n' "deepseek-v4-pro" ;;
-    *) return 1 ;;
-  esac
-}
-
 toml_value() {
   file=$1
   key=$2
@@ -123,75 +93,6 @@ key_is_placeholder() {
     ''|PASTE_*|REPLACE_*|YOUR_*|'< '*|'<'*) return 0 ;;
     *) [ ${#1} -lt 10 ] && return 0 || return 1 ;;
   esac
-}
-
-install_deepseek_direct_catalog() {
-  if [ -f "$deepseek_direct_catalog_source" ]; then
-    mkdir -p "$codex_home"
-    cp "$deepseek_direct_catalog_source" "$deepseek_direct_catalog"
-    chmod 600 "$deepseek_direct_catalog"
-    return 0
-  fi
-
-  [ -f "$deepseek_direct_catalog" ] || die "找不到 DeepSeek 直连模型目录。请重新安装 codex-switcher，或设置 CODEX_SWITCHER_DEEPSEEK_MODELS_JSON。"
-}
-
-deepseek_direct_key_for() {
-  profile=$1
-  target="$codex_home/$profile.config.toml"
-
-  key=${DEEPSEEK_API_KEY:-}
-  if ! key_is_placeholder "$key"; then
-    printf '%s\n' "$key"
-    return 0
-  fi
-
-  key=$(toml_value "$target" experimental_bearer_token || true)
-  if ! key_is_placeholder "$key"; then
-    printf '%s\n' "$key"
-    return 0
-  fi
-
-  printf '%s\n' "PASTE_DEEPSEEK_API_KEY_HERE"
-}
-
-write_deepseek_direct_profile() {
-  profile=$1
-  key=$2
-  model=$(deepseek_direct_model "$profile")
-  target="$codex_home/$profile.config.toml"
-  tmp="$target.codex-switcher-tmp.$$"
-
-  mkdir -p "$codex_home"
-  {
-    printf 'model = "%s"\n' "$model"
-    printf 'model_provider = "deepseek-direct"\n'
-    printf 'model_reasoning_effort = "high"\n'
-    printf 'model_catalog_json = "%s"\n' "$deepseek_direct_catalog"
-    printf '\n'
-    printf '[model_providers.deepseek-direct]\n'
-    printf 'name = "DeepSeek Direct"\n'
-    printf 'base_url = "https://api.deepseek.com/"\n'
-    printf 'wire_api = "responses"\n'
-    printf 'requires_openai_auth = false\n'
-    printf 'supports_websockets = false\n'
-    printf 'experimental_bearer_token = "%s"\n' "$key"
-  } > "$tmp"
-  chmod 600 "$tmp"
-  mv "$tmp" "$target"
-}
-
-ensure_deepseek_direct_profile() {
-  profile=$1
-  mode=${2:-launch}
-
-  install_deepseek_direct_catalog
-  key=$(deepseek_direct_key_for "$profile")
-  write_deepseek_direct_profile "$profile" "$key"
-
-  if [ "$mode" != "edit" ] && key_is_placeholder "$key"; then
-    die "尚未填写 DeepSeek API Key；请执行：codex-switcher edit $profile"
-  fi
 }
 
 write_profile_template() {
@@ -227,10 +128,6 @@ sync_models() {
       return 1
       ;;
   esac
-  if is_deepseek_direct_profile "$name"; then
-    echo "错误：DeepSeek 直连 Profile（$name）使用自带模型目录，不需要 sync-models。" >&2
-    return 1
-  fi
 
   profile_file="$codex_home/$name.config.toml"
   [ -f "$profile_file" ] || { echo "错误：不存在 profile：$name" >&2; return 1; }
@@ -306,13 +203,18 @@ EXCLUDE = {"codex-auto-review"}
 
 source_files = [
     os.path.join(codex_home, "models_cache.json"),
-    os.path.join(codex_home, "deepseek-direct-models.json"),
+    os.path.join(codex_home, "deepseek-models.json"),
     catalog_path,
 ]
 by_slug = {}
+seen_paths = set()
 for p in source_files:
     if not os.path.exists(p):
         continue
+    real = os.path.realpath(p)
+    if real in seen_paths:
+        continue
+    seen_paths.add(real)
     try:
         with open(p) as f:
             models = json.load(f).get("models", [])
@@ -339,7 +241,7 @@ for mid in ids:
         continue
     entry = by_slug.get(mid)
     if entry is None:
-        skipped.append((mid, "无完整条目（models_cache.json / deepseek-direct-models.json 均无）"))
+        skipped.append((mid, "无完整条目（models_cache.json / deepseek-models.json 均无）"))
         continue
     existing[mid] = entry
     added.append(mid)
@@ -388,7 +290,6 @@ prepare_official_environment() {
 }
 
 prepare_provider_environment() {
-  unset DEEPSEEK_API_KEY
   unset ANTHROPIC_BASE_URL
   unset ANTHROPIC_AUTH_TOKEN
   unset OPENAI_BASE_URL
@@ -417,7 +318,6 @@ list_profiles() {
       base=${file##*/}
       printf '%s\n' "${base%.config.toml}"
     done
-    printf '%s\n' deepseek-direct-flash deepseek-direct-pro
   } | sort -u
 }
 
@@ -435,10 +335,10 @@ usage() {
   codex-switcher <名称> [Codex参数...]   启动指定 profile
 
 官方回退别名：official、default、reset、restore
-DeepSeek 直连：deepseek-direct-flash / deepseek-direct-pro 使用自带模型目录。
-普通 Profile（OpenAI 兼容中转）：create 生成干净模板，edit 填写 base_url 与 Key，
-  退出编辑或执行 sync-models 时自动查询 <base_url>/models 并生成 <名称>-models.json，
-  让 /model 可直接切换该中转站支持的所有模型（只增不减、自动备份、权限 600）。
+所有第三方 Provider（包括 DeepSeek）都走同一个通用流程：
+  create 生成干净模板，edit 填写 base_url 与 Key，退出编辑或执行 sync-models 时
+  自动查询 <base_url>/models 并生成 <名称>-models.json，/model 直接切换该中转站
+  支持的所有模型（只增不减、自动备份、权限 600）。
 环境变量：CODEX_SWITCHER_NO_AUTO_SYNC=1 可关闭自动同步，只保留手动 sync-models。
 编辑器：优先使用 CODEX_SWITCHER_EDITOR，其次 VISUAL/EDITOR，默认 vim
 profile：<Codex 主目录>/<名称>.config.toml（默认 ~/.codex，可用 CODEX_SWITCHER_CODEX_HOME 覆盖）
@@ -485,9 +385,6 @@ case "${1:-}" in
     name=${2:-}
     [ -n "$name" ] || die "请指定 profile 名称，例如：codex-switcher edit provider-a"
     valid_name "$name" || die "无效 profile 名称。"
-    if is_deepseek_direct_profile "$name"; then
-      ensure_deepseek_direct_profile "$name" edit
-    fi
     case "$name" in
       official|default|reset|restore) target="$codex_home/config.toml" ;;
       *) target="$codex_home/$name.config.toml" ;;
@@ -504,9 +401,6 @@ case "${1:-}" in
     case "$name" in
       official|default|reset|restore) exit 0 ;;
     esac
-    if is_deepseek_direct_profile "$name"; then
-      exit 0
-    fi
     if [ "${CODEX_SWITCHER_NO_AUTO_SYNC:-0}" != "1" ]; then
       echo "编辑完成，正在同步模型目录..."
       if sync_models "$name"; then
@@ -562,10 +456,6 @@ case "${1:-}" in
         ;;
       *)
         profile_file="$codex_home/$name.config.toml"
-        if is_deepseek_direct_profile "$name"; then
-          ensure_deepseek_direct_profile "$name" launch
-          prepare_provider_environment
-        fi
         [ -f "$profile_file" ] || die "不存在 profile：$name"
         vscode_home="$codex_home/codex-switcher-vscode/$name"
         mkdir -p "$vscode_home"
@@ -638,15 +528,11 @@ fi
 
 valid_name "$profile" || die "无效 profile 名称。"
 reserved_name "$profile" && die "'$profile' 是保留命令名，请使用 codex-switcher official 或换一个 profile 名称。"
-if is_deepseek_direct_profile "$profile"; then
-  ensure_deepseek_direct_profile "$profile" launch
-  prepare_provider_environment
-fi
 target="$codex_home/$profile.config.toml"
 [ -f "$target" ] || die "不存在 profile：$profile"
 
-# 普通 Profile：模型目录不存在时自动同步一次（不每次同步）
-if [ "${CODEX_SWITCHER_NO_AUTO_SYNC:-0}" != "1" ] && ! is_deepseek_direct_profile "$profile"; then
+# 模型目录不存在时自动同步一次（不每次同步）
+if [ "${CODEX_SWITCHER_NO_AUTO_SYNC:-0}" != "1" ]; then
   case "$profile" in
     official|default|reset|restore) ;;
     *)
