@@ -21,9 +21,13 @@ fi
 
 if [ -f "$package_dir/assets/deepseek-models.json" ]; then
   mkdir -p "$codex_home_dir"
-  install -m 0600 "$package_dir/assets/deepseek-models.json" \
-    "$codex_home_dir/deepseek-models.json"
-  echo "已安装 DeepSeek 模型来源目录：$codex_home_dir/deepseek-models.json"
+  if [ -f "$codex_home_dir/deepseek-models.json" ]; then
+    echo "已存在 DeepSeek 模型来源目录，保留现有内容不覆盖：$codex_home_dir/deepseek-models.json"
+  else
+    install -m 0600 "$package_dir/assets/deepseek-models.json" \
+      "$codex_home_dir/deepseek-models.json"
+    echo "已安装 DeepSeek 模型来源目录：$codex_home_dir/deepseek-models.json"
+  fi
 fi
 
 add_path=1
