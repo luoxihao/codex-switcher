@@ -137,14 +137,28 @@ flowchart LR
     I --> D
 ```
 
-### 作用范围
+### 作用范围：终端/进程级覆盖，不是全局修改
 
-切换只影响新启动的进程：
+`codex-switcher` 的切换是**终端 / 进程级**的，不修改全局配置：
 
-- `codex-switcher <名称>` 只影响它启动的 Codex 进程。
-- 已经打开的其他 Codex 或 VS Code 会话不会自动切换。
-- 关闭第三方 Codex 后，直接运行 `codex` 会使用官方默认配置。
-- `codex-switcher official` 会清理第三方 Provider 环境变量。
+- `codex-switcher <名称>` 只给**当前终端里启动的那一个 Codex 进程**设置 `CODEX_HOME` 并带上 `--profile <名称>`；它**不修改** `~/.codex/config.toml`，**不写入**系统或 shell 的全局环境变量。关闭这个终端、或在该终端里运行其他命令，都不受影响。
+- 已经打开的其他 Codex 或 VS Code 会话不会自动切换，需要退出后用 `codex-switcher` 重新启动。
+- 直接运行 `codex`（不带 codex-switcher）时，用的是**最初的全局配置** `~/.codex/config.toml`：
+  - 未启用 cc-switch → 官方默认配置；
+  - 启用了 cc-switch → 就是 cc-switch 当前选中的 Provider 配置（cc-switch 会改写 `~/.codex/config.toml` 并可能走本地代理 `127.0.0.1:15721`）。
+- `codex-switcher official` 也只是清理**当前进程**的第三方 Provider 环境变量，不影响其他终端。
+
+### 排查与恢复建议
+
+- **配置出问题，先用原始 Codex 诊断/修复**：Profile 改坏、Key 填错、同步失败时，直接回到原生命令，不要再用 codex-switcher 层层叠加：
+
+  ```bash
+  codex login status     # 看当前登录 / Provider 状态
+  codex doctor           # 官方诊断
+  ```
+
+- **让 Codex 帮你配置**：不确定某个 Profile TOML 该怎么写时，直接开一个 Codex 会话（用能用的 Profile 或官方），让它读 `~/.codex/<名称>.config.toml` 帮你解释、修改或生成，比自己手改更稳。
+- 恢复默认：`codex-switcher official`，或直接运行 `codex`（此时用的是 cc-switch 或官方配置）。
 
 ## 使用
 
