@@ -52,6 +52,27 @@
 | python3 | `sync-models` 合并模型目录 JSON 需要（多数 Linux 已自带） |
 | 编辑器（可选） | 编辑 Profile 时使用 `$EDITOR`，可通过 `CODEX_SWITCHER_EDITOR` 覆盖 |
 
+### 安装 Codex CLI
+
+`codex-switcher` 依赖 Codex CLI（`codex` 命令需在 `PATH` 中）。如果还没安装：
+
+```bash
+# 推荐：npm 全局安装（macOS / Linux / Windows 通用，需要 Node.js）
+npm install -g @openai/codex
+
+# 或：Linux / macOS 官方安装脚本（不需要 Node.js）
+curl -fsSL https://codex.cli.openai.com/install.sh | bash
+```
+
+安装后验证：
+
+```bash
+codex --version
+codex login status
+```
+
+> 也可以不安装，用 `CODEX_SWITCHER_CODEX_BIN` 指向现有的 Codex 可执行文件（见[环境变量参考](#环境变量参考)）。
+
 ## 快速开始
 
 把仓库克隆到任意目录（下文以 `~/codex-switcher` 为例），然后安装：
