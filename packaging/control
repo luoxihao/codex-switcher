@@ -1,0 +1,11 @@
+Package: codex-switcher
+Version: 3.0.0
+Section: utils
+Priority: optional
+Architecture: all
+Depends: curl, python3
+Maintainer: luoxihao <luoxihao2001@outlook.com>
+Description: Codex provider/relay switcher with /models auto-sync
+ Switch between OpenAI-compatible relay profiles for Codex CLI. Add an API
+ (base_url + key), auto-discover the relay's /models into the profile model
+ catalog, and let /model switch between all supported models.

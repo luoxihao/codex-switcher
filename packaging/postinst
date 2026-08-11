@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+# 安装后的系统级初始化都在 /usr/share/codex-switcher 下；
+# 用户级数据（~/.codex）由工具首次运行（sync-models）时自动初始化，这里不碰用户目录。
+exit 0

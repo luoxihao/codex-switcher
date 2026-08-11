@@ -132,6 +132,14 @@ sync_models() {
   profile_file="$codex_home/$name.config.toml"
   [ -f "$profile_file" ] || { echo "错误：不存在 profile：$name" >&2; return 1; }
 
+  # deb 系统安装场景：~/.codex 没有来源目录时，从 /usr/share 初始化
+  if [ ! -f "$codex_home/deepseek-models.json" ] && [ -f /usr/share/codex-switcher/assets/deepseek-models.json ]; then
+    mkdir -p "$codex_home"
+    cp /usr/share/codex-switcher/assets/deepseek-models.json "$codex_home/deepseek-models.json"
+    chmod 600 "$codex_home/deepseek-models.json"
+    echo "已从 /usr/share/codex-switcher 初始化 deepseek-models.json"
+  fi
+
   base_url=$(toml_value "$profile_file" base_url || true)
   [ -n "$base_url" ] || {
     echo "错误：Profile $name 未配置 base_url，请先 codex-switcher edit $name 填写中转站地址。" >&2

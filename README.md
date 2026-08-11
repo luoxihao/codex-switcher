@@ -108,7 +108,38 @@ codex-switcher official
 
 ## 安装 / 更新 / 卸载
 
-### 安装或更新
+### 通过 apt 安装（推荐）
+
+仓库发布为 GitHub Pages 上的 apt 仓库（`https://luoxihao.github.io/codex-switcher/apt/`）。首次安装：
+
+```bash
+# 1) 添加 GPG 公钥（校验仓库签名）
+curl -fsSL https://luoxihao.github.io/codex-switcher/codex-switcher.asc \
+  | sudo tee /etc/apt/keyrings/codex-switcher.asc > /dev/null
+
+# 2) 添加 apt 源
+echo "deb [signed-by=/etc/apt/keyrings/codex-switcher.asc] https://luoxihao.github.io/codex-switcher/apt stable main" \
+  | sudo tee /etc/apt/sources.list.d/codex-switcher.list
+
+# 3) 安装 / 升级 / 卸载
+sudo apt-get update
+sudo apt-get install codex-switcher     # 升级：sudo apt-get upgrade
+                                        # 卸载：sudo apt-get remove codex-switcher
+```
+
+> [!NOTE]
+> 前提：仓库已启用 GitHub Pages（Settings → Pages → Deploy from a branch → `gh-pages` / root）。
+> 已用 `install.sh` 装过的话，先删除 `~/.local/bin/codex-switcher`，避免 PATH 里两个版本冲突。
+
+### 从源码安装（备选）
+
+不想用 apt 时，也可以直接跑仓库里的安装脚本（只写用户目录，不需要 root）：
+
+```bash
+sh ~/codex-switcher/install.sh
+```
+
+安装器只写入用户目录，不需要 root：
 
 ```bash
 sh ~/codex-switcher/install.sh
