@@ -7,3 +7,6 @@ Thumbs.db
 
 # 运行期产物
 *.log
+
+# 本地 Git 工作树
+.worktrees/
