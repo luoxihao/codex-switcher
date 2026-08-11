@@ -10,3 +10,6 @@ Thumbs.db
 
 # 本地 Git 工作树
 .worktrees/
+
+# 本地执行日志
+.superpowers/
