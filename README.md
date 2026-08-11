@@ -19,6 +19,7 @@
 - [启动与恢复会话](#启动与恢复会话)
 - [Codex 命令兼容性](#codex-命令兼容性)
 - [Profile 管理](#profile-管理)
+- [模型目录与 /model 切换](#模型目录与-model-切换)
 - [VS Code](#vs-code)
 - [强制返回官方](#强制返回官方)
 - [环境变量参考](#环境变量参考)
@@ -406,6 +407,26 @@ PROVIDER_A_API_KEY='你的密钥' codex-switcher provider-a
 
 </details>
 
+## 模型目录与 `/model` 切换
+
+Codex CLI 的 `/model`（以及 `codex models`）只列出 Profile TOML 里 `model_catalog_json` 指向的模型目录中登记的模型：
+
+```text
+~/.codex/<名称>.config.toml        # Profile TOML
+model_catalog_json = "<名称>-models.json"   # 模型目录，相对 ~/.codex
+```
+
+> [!IMPORTANT]
+> API 支持某模型，不等于 `/model` 里能选它。目录里没登记的模型无法在 `/model` 切换。
+
+如果 API 支持多个模型（例如 OpenAI 兼容代理同时提供 `gpt-5.5` 与 `gpt-5.6-sol/terra/luna`），把需要的模型以完整条目合并进对应 Profile 的模型目录 JSON 即可。条目可从本机官方模型缓存 `~/.codex/models_cache.json` 复制，保证 `base_instructions`、推理档位、上下文窗口等字段完整。
+
+- `/model` 切换只对当前会话生效；默认模型仍由 TOML 的 `model` 决定。
+- `review_model` 不跟随 `/model` 切换，需要单独修改。
+
+> [!NOTE]
+> 完整实现与 codex5288 的实战步骤见 [docs/model-switching.md](docs/model-switching.md)。
+
 ## VS Code
 
 完全退出已有 VS Code 后运行：
@@ -519,6 +540,13 @@ codex --version
 
 </details>
 
+<details>
+<summary><strong>`/model` 看不到 / 切不了某个模型</strong></summary>
+
+原因通常是该模型没有登记在 Profile 的模型目录（`model_catalog_json`）里。参见 [模型目录与 `/model` 切换](#模型目录与-model-切换) 与 [docs/model-switching.md](docs/model-switching.md)。
+
+</details>
+
 ## 文件结构
 
 ```text
@@ -528,8 +556,10 @@ codex --version
 ├── uninstall.sh
 ├── assets/
 │   └── deepseek-direct-models.json
-└── bin/
-    └── codex-switcher
+├── bin/
+│   └── codex-switcher
+└── docs/
+    └── model-switching.md          # 模型目录与 /model 切换的实现文档
 
 ~/.local/bin/
 └── codex-switcher                # 安装后的命令
@@ -542,6 +572,8 @@ codex --version
 ├── deepseek-direct-flash.config.toml
 ├── deepseek-pro.config.toml
 ├── deepseek-flash.config.toml
+├── codex-5288.config.toml        # 自定义 OpenAI 兼容代理 Profile（示例）
+├── codex-5288-models.json        # 该 Profile 的模型目录（示例）
 └── litellm/                      # 旧桥接路径的运行时目录（可选）
     ├── config.yaml
     ├── manage.py
