@@ -1,6 +1,6 @@
 # 模型目录与 `/model` 切换
 
-> 本文记录「API（中转站）支持多个模型，但 Codex CLI 里 `/model` 切不了」的完整实现与排查过程。
+> 本文记录「API（中转站）支持多个模型，但 Codex CLI 里 `/model` 切不了」的完整实现与排查过程。返回 [README](../../README.md)。
 
 > [!IMPORTANT]
 > **前置要求（支持范围）**：本工具（codex-switcher）只支持 OpenAI 兼容中转站——中转站必须实现：
@@ -37,7 +37,8 @@ Codex CLI 的 `/model`（以及 `codex models`）只列出 **模型目录**（`m
 ```text
 ~/codex-switcher/
 └── docs/
-    └── model-switching.md        # 本文
+    └── guides/
+        └── model-switching.md    # 本文
 ```
 
 ## 自动同步：添加 API 后工具做了什么
