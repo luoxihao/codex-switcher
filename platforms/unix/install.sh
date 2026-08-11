@@ -2,6 +2,7 @@
 set -eu
 
 package_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
+repo_root=$(CDPATH= cd "$package_dir/../.." && pwd)
 bin_dir=${CODEX_SWITCHER_BIN_DIR:-$HOME/.local/bin}
 codex_home_dir=${CODEX_SWITCHER_CODEX_HOME:-$HOME/.codex}
 
@@ -19,12 +20,12 @@ if [ -d "$codex_home_dir/codex-switcher-package/bin" ]; then
   echo "已同步 Codex package 命令：$codex_home_dir/codex-switcher-package/bin/codex-switcher"
 fi
 
-if [ -f "$package_dir/assets/deepseek-models.json" ]; then
+if [ -f "$repo_root/assets/deepseek-models.json" ]; then
   mkdir -p "$codex_home_dir"
   if [ -f "$codex_home_dir/deepseek-models.json" ]; then
     echo "已存在 DeepSeek 模型来源目录，保留现有内容不覆盖：$codex_home_dir/deepseek-models.json"
   else
-    install -m 0600 "$package_dir/assets/deepseek-models.json" \
+    install -m 0600 "$repo_root/assets/deepseek-models.json" \
       "$codex_home_dir/deepseek-models.json"
     echo "已安装 DeepSeek 模型来源目录：$codex_home_dir/deepseek-models.json"
   fi
