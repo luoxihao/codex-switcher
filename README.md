@@ -1,38 +1,52 @@
 # codex-switcher
 
-在官方 OpenAI Codex 与 OpenAI 兼容中转站 / 第三方 Provider 之间安全切换的命令行包装器。
+轻量命令行工具，在官方 OpenAI Codex 与 OpenAI 兼容中转站（第三方 Provider）之间安全切换。
 
-`codex-switcher` 本身是 Codex CLI 的一层薄封装：它按 Profile 准备环境（模型目录、API Key），再以 `codex --profile <name>` 启动。添加 OpenAI 兼容中转站后，工具会自动查询它的 `/models` 并生成模型目录，让 `/model` 直接切换该中转站支持的所有模型。
+快速安装
 
-> [!IMPORTANT]
-> **支持范围（前置要求）**：本工具只支持 OpenAI 兼容中转站——中转站必须实现 `GET /v1/models`（查询模型列表）与 `POST /v1/responses`（Responses API）。
-> - 只提供 `/v1/chat/completions`、没有 Responses API 的中转站**无法直接使用**本工具。
-> - 没有实现 `/models` 接口的中转站无法自动发现模型，需要按 [模型目录与 /model 切换](#模型目录与-model-切换) 手工配置。
+```sh
+sh install.sh
+```
 
-> [!TIP]
-> 相关项目：[proxy-switcher](../proxy-switcher) 提供 Linux 桌面的统一代理切换，两者可以配合使用。
+快速示例
 
-## 目录
+```sh
+# 列出 profiles
+codex-switcher list
 
-- [特性](#特性)
-- [环境要求](#环境要求)
-- [快速开始](#快速开始)
-- [安装 / 更新 / 卸载](#安装--更新--卸载)
-- [工作原理](#工作原理)
-- [使用](#使用)
-- [配置 DeepSeek Key](#配置-deepseek-key)
-- [启动与恢复会话](#启动与恢复会话)
-- [Codex 命令兼容性](#codex-命令兼容性)
-- [Profile 管理](#profile-管理)
-- [模型目录与 /model 切换](#模型目录与-model-切换)
-- [VS Code](#vs-code)
-- [强制返回官方](#强制返回官方)
-- [环境变量参考](#环境变量参考)
-- [故障排查](#故障排查)
-- [文件结构](#文件结构)
-- [迁移到其他机器](#迁移到其他机器)
-- [安全说明](#安全说明)
-- [参考资料](#参考资料)
+# 新建并编辑第三方 Provider（退出编辑器后自动同步模型目录）
+codex-switcher create my-api && codex-switcher edit my-api
+
+# 手动同步模型目录
+codex-switcher sync-models my-api
+
+# 启动指定 profile
+codex-switcher my-api
+
+# 强制回到官方
+codex-switcher official
+```
+
+主要功能
+
+- 自动生成并管理 Profile 的模型目录（/model 可见项）
+- Profile 管理：create / edit / delete / list
+- 支持 DeepSeek、任意 OpenAI 兼容中转站（需实现 GET /v1/models 与 Responses API）
+- 会话恢复 / 分叉 / 归档透传 Codex 常用命令
+- VS Code 集成（codex-switcher vscode <profile>）
+
+文档
+
+- 详尽 Linux 使用文档：docs/linux.md
+- Windows 版本占位（正在开发）：docs/windows.md
+
+安全说明
+
+- API Key 保存在 Profile TOML（权限 600），请勿提交、打印或泄露。
+
+贡献
+
+欢迎提交 Issue 与 PR。更多实现细节见 docs/ 目录下的子文档。
 
 ## 特性
 
