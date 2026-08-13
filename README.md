@@ -22,6 +22,7 @@
 - [使用](#使用)
 - [配置 DeepSeek Key](#配置-deepseek-key)
 - [启动与恢复会话](#启动与恢复会话)
+- [查看全部会话](#查看全部会话)
 - [Codex 命令兼容性](#codex-命令兼容性)
 - [Profile 管理](#profile-管理)
 - [模型目录与 /model 切换](#模型目录与-model-切换)
@@ -40,6 +41,7 @@
 - 添加 API 后自动配置全部可用模型：`create` 生成干净模板，`edit` 退出后自动查询中转站 `/models` 并生成模型目录，`/model` 可直接切换。
 - API Key 持久化写入 Profile TOML（权限 600），不依赖临时环境变量。
 - 支持会话恢复（`resume`）、分叉（`fork`）、归档（`archive`）等 Codex 常用命令透传。
+- `sessions` 跨目录列出全部会话（日期 / 会话 ID / Provider / 大小 / 所属目录）。
 - 提供 VS Code 集成，让 VS Code 内嵌 Codex 使用指定 Provider。
 - 提供 `install.sh` / `uninstall.sh`，安装、更新、卸载一条命令完成。
 
@@ -191,6 +193,7 @@ flowchart LR
 | 添加中转站 Profile | `codex-switcher create my-api` + `codex-switcher edit my-api` |
 | 添加 DeepSeek | `codex-switcher create deepseek` + `codex-switcher edit deepseek` |
 | 同步中转站模型 | `codex-switcher sync-models my-api` |
+| 列出全部会话 | `codex-switcher sessions` |
 | 强制返回官方 | `codex-switcher official` |
 | 查看 Profile | `codex-switcher list` |
 | 查看帮助 | `codex-switcher --help` |
@@ -279,6 +282,26 @@ codex-switcher deepseek resume <SESSION_ID>
 > 不要用普通 `codex resume` 恢复 DeepSeek 会话。恢复时继续使用创建该会话的原 Profile。
 
 即使中间执行过 `codex-switcher official`，恢复命令也会重新准备对应 Profile 的模型目录。
+
+## 查看全部会话
+
+Codex 的 `resume` 选择器默认只显示**当前目录**的会话。两种方式可以跨目录查看：
+
+```bash
+# 方式一：原生选择器，显示全部会话并带 CWD 列
+codex resume --all
+codex resume --all --include-non-interactive   # 含 exec 等非交互会话
+
+# 方式二：codex-switcher 直接输出清单（日期 / 会话 ID / Provider / 大小 / 目录）
+codex-switcher sessions
+```
+
+拿到会话 ID 后，在任意目录都能直接恢复（UUID 优先，不受当前目录限制）：
+
+```bash
+codex resume <SESSION_ID>
+codex-switcher deepseek resume <SESSION_ID>
+```
 
 ## Codex 命令兼容性
 
@@ -380,7 +403,7 @@ codex-switcher
 保留名称：
 
 ```text
-official default reset restore list create edit delete remove rm sync-models help version
+official default reset restore list create edit delete remove rm sync-models sessions help version
 ```
 
 `create` 不再复制主配置 `config.toml`，而是生成固定干净模板（避免把 `personality`、`plugins`、`[projects]` 信任目录等脏配置复制进来）：
