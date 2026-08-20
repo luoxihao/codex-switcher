@@ -313,7 +313,7 @@ valid_name() {
 
 reserved_name() {
   case "$1" in
-    list|create|edit|delete|remove|rm|sync-models|official|default|reset|restore|help|version)
+    list|create|edit|delete|remove|rm|sync-models|sessions|official|default|reset|restore|help|version)
       return 0 ;;
     *) return 1 ;;
   esac
@@ -329,6 +329,72 @@ list_profiles() {
   } | sort -u
 }
 
+list_sessions() {
+  command -v python3 >/dev/null 2>&1 || die "需要 python3 才能列出会话。"
+  CODEX_SWITCHER_HOME="$codex_home" python3 <<'PY'
+import glob, json, os, re, sys
+from datetime import datetime
+
+codex_home = os.environ["CODEX_SWITCHER_HOME"]
+sessions_dir = os.path.join(codex_home, "sessions")
+rows = []
+
+def local_time(ts):
+    if not ts:
+        return "未知"
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return ts[:16].replace("T", " ")
+
+if os.path.isdir(sessions_dir):
+    for p in glob.glob(os.path.join(sessions_dir, "**", "*.jsonl"), recursive=True):
+        ts = sid = cwd = provider = None
+        try:
+            with open(p, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    try:
+                        d = json.loads(line)
+                    except Exception:
+                        continue
+                    if isinstance(d, dict) and d.get("type") == "session_meta":
+                        pl = d.get("payload") or {}
+                        sid = pl.get("session_id") or pl.get("id") or sid
+                        cwd = pl.get("cwd") or cwd
+                        provider = pl.get("model_provider") or provider
+                        ts = pl.get("timestamp") or ts
+                        break
+        except OSError:
+            continue
+        if not sid:
+            sid = os.path.basename(p)
+        folder_date = ""
+        m = re.search(r"/sessions/(\d{4})/(\d{2})/(\d{2})/", p)
+        if m:
+            folder_date = "%s-%s-%s" % (m.group(1), m.group(2), m.group(3))
+        try:
+            size = os.path.getsize(p)
+        except OSError:
+            size = 0
+        rows.append((ts or folder_date, ts, sid, provider or "", cwd or "", size))
+
+if not rows:
+    print("没有找到会话：%s 不存在或为空" % sessions_dir)
+    raise SystemExit(0)
+
+rows.sort(key=lambda r: r[0])
+lines = ["%-17s %-36s %-16s %8s  %s" % ("时间", "会话 ID", "Provider", "大小", "目录")]
+for _sort_ts, ts, sid, provider, cwd, size in rows:
+    lines.append("%-17s %-36s %-16s %6dKB  %s" % (local_time(ts), sid, provider, size // 1024, cwd))
+out = "\n".join(lines) + "\n"
+try:
+    sys.stdout.write(out)
+except BrokenPipeError:
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, sys.stdout.fileno())
+PY
+}
+
 usage() {
   cat <<'EOF'
 用法：
@@ -336,6 +402,7 @@ usage() {
   codex-switcher official                使用默认/官方配置启动 Codex
   codex-switcher vscode <名称>           带指定供应商环境启动 VS Code Codex
   codex-switcher list                    列出已有 profile
+  codex-switcher sessions                列出全部会话（跨目录，含所属目录）
   codex-switcher create <名称>           创建新的 profile（干净模板，不会复制主配置）
   codex-switcher edit <名称>             用 vim/指定编辑器打开对应 TOML，退出后自动同步模型
   codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
@@ -363,11 +430,16 @@ case "${1:-}" in
     exit 0
     ;;
   -V|--version|version)
-    echo "codex-switcher 3.0.0"
+    echo "codex-switcher 3.1.0"
     exit 0
     ;;
   list)
     list_profiles
+    exit 0
+    ;;
+  sessions)
+    [ "$#" -gt 1 ] && die "sessions 命令不接受额外参数。"
+    list_sessions
     exit 0
     ;;
   create)
