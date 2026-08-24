@@ -65,3 +65,22 @@ codex-switcher sessions rename <会话ID> 新的主题
   ```
 
 - 找不到指定 ID 会直接报错，不会修改任何文件。
+
+## 会话统计
+
+按 Provider 汇总全部会话的数量、体积与时间范围，快速判断哪个中转站在实际使用：
+
+```sh
+codex-switcher stats
+```
+
+输出示例：
+
+```text
+会话统计：29 个会话，72.0 MB
+按 Provider：
+  custom           20 个会话      60.0 MB  2026-08-03 ~ 2026-08-24
+  openai            9 个会话      12.0 MB  2026-08-03 ~ 2026-08-19
+```
+
+Provider 取自每个会话的 `session_meta.model_provider`；只读会话文件，不修改任何数据。

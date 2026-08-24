@@ -256,7 +256,7 @@ function Test-ValidName {
 function Test-ReservedName {
     param([string]$Name)
 
-    if ($Name -in @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'model', 'doctor', 'official', 'default', 'reset', 'restore', 'help', 'version', 'completion', '__complete')) {
+    if ($Name -in @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'model', 'doctor', 'stats', 'official', 'default', 'reset', 'restore', 'help', 'version', 'completion', '__complete')) {
         throw "'$Name' 是保留命令名，请换一个 profile 名称。"
     }
 }
@@ -609,6 +609,22 @@ function Format-LocalSessionTime {
     }
 }
 
+function Format-LocalSessionDate {
+    param([string]$Ts)
+
+    if ([string]::IsNullOrWhiteSpace($Ts)) {
+        return ''
+    }
+    try {
+        return ([DateTime]::Parse($Ts).ToLocalTime()).ToString('yyyy-MM-dd')
+    } catch {
+        if ($Ts.Length -ge 10) {
+            return $Ts.Substring(0, 10)
+        }
+        return ''
+    }
+}
+
 function Invoke-Sessions {
     $codexHome = Get-CodexHome
     $sessionsDir = Join-Path $codexHome 'sessions'
@@ -723,6 +739,61 @@ function Invoke-Sessions {
     }
 }
 
+function Invoke-Stats {
+    $codexHome = Get-CodexHome
+    $sessionsDir = Join-Path $codexHome 'sessions'
+    if (-not (Test-Path -LiteralPath $sessionsDir -PathType Container)) {
+        Write-Output "没有找到会话：$sessionsDir 不存在或为空"
+        return
+    }
+    $rows = @()
+    foreach ($p in Get-ChildItem -LiteralPath $sessionsDir -Recurse -Filter '*.jsonl' -File -ErrorAction SilentlyContinue) {
+        $provider = ''
+        $ts = ''
+        foreach ($line in [System.IO.File]::ReadLines($p.FullName)) {
+            if ([string]::IsNullOrWhiteSpace($line)) {
+                continue
+            }
+            try {
+                $obj = $line | ConvertFrom-Json
+            } catch {
+                continue
+            }
+            if ($null -ne $obj -and $obj.type -eq 'session_meta' -and $null -ne $obj.payload) {
+                if ([string]::IsNullOrWhiteSpace($provider)) {
+                    $provider = $obj.payload.model_provider
+                }
+                if ([string]::IsNullOrWhiteSpace($ts)) {
+                    $ts = $obj.payload.timestamp
+                }
+                break
+            }
+        }
+        if ([string]::IsNullOrWhiteSpace($provider)) {
+            $provider = '未知'
+        }
+        $size = try { (Get-Item -LiteralPath $p.FullName -ErrorAction Stop).Length } catch { 0 }
+        $rows += [pscustomobject]@{ Provider = $provider; Ts = $ts; Size = $size }
+    }
+    if ($rows.Count -eq 0) {
+        Write-Output "没有找到会话：$sessionsDir 不存在或为空"
+        return
+    }
+    $totalSize = ($rows | Measure-Object -Property Size -Sum).Sum
+    Write-Output ("会话统计：{0} 个会话，{1:N1} MB" -f $rows.Count, ($totalSize / 1MB))
+    Write-Output '按 Provider：'
+    $rows | Group-Object Provider | Sort-Object { $_.Count } -Descending | ForEach-Object {
+        $sorted = @($_.Group | Sort-Object Ts)
+        $first = $sorted | Select-Object -First 1
+        $last = $sorted | Select-Object -Last 1
+        $firstD = Format-LocalSessionDate $first.Ts
+        $lastD = Format-LocalSessionDate $last.Ts
+        $span = if ($firstD) { "$firstD ~ $lastD" } else { '' }
+        $sum = ($_.Group | Measure-Object -Property Size -Sum).Sum
+        Write-Output ("  {0,-16} {1,3} 个会话 {2,8:N1} MB  {3}" -f $_.Name, $_.Count, ($sum / 1MB), $span)
+    }
+}
+
 function Remove-Session {
     param([string]$SessionId)
 
@@ -807,7 +878,7 @@ function Get-CompletionCandidates {
     param([string[]]$Words)
 
     if ($Words.Count -le 1) {
-        Write-Output @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'model', 'doctor', 'vscode', 'official', 'default', 'reset', 'restore', 'help', 'version', 'completion', '-h', '--help', '-V', '--version')
+        Write-Output @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'model', 'doctor', 'stats', 'vscode', 'official', 'default', 'reset', 'restore', 'help', 'version', 'completion', '-h', '--help', '-V', '--version')
         Get-ProfileList -CodexHome (Get-CodexHome)
         return
     }
@@ -1133,6 +1204,7 @@ function Show-Usage {
   codex-switcher sessions                列出全部会话（跨目录，含主题与所属目录）
   codex-switcher sessions remove <ID>   删除指定会话（rm 亦可，删除前显示主题确认）
   codex-switcher sessions rename <ID> <主题>  重命名会话（主题留空则清除自定义名）
+  codex-switcher stats                   统计全部会话（按 Provider 分组）
   codex-switcher create <名称>           创建新的 profile（干净模板，不会复制主配置）
   codex-switcher edit <名称>             用编辑器打开对应 TOML，退出后自动同步模型
   codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
@@ -1232,6 +1304,10 @@ function Invoke-CodexSwitcher {
                 $newModel = $models[[int]$choice - 1]
                 Set-ProfileModel -Name $name -NewModel $newModel
                 Write-Output "已将 $name 的 model 切换为：$newModel"
+                return
+            }
+            'stats' {
+                Invoke-Stats
                 return
             }
             'doctor' {

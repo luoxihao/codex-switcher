@@ -313,7 +313,7 @@ valid_name() {
 
 reserved_name() {
   case "$1" in
-    list|create|edit|delete|remove|rm|sync-models|sessions|model|doctor|official|default|reset|restore|help|version|completion|__complete)
+    list|create|edit|delete|remove|rm|sync-models|sessions|model|doctor|stats|official|default|reset|restore|help|version|completion|__complete)
       return 0 ;;
     *) return 1 ;;
   esac
@@ -609,6 +609,71 @@ rename_session() {
   fi
 }
 
+stats() {
+  command -v python3 >/dev/null 2>&1 || die "需要 python3 才能统计会话。"
+  CODEX_SWITCHER_HOME="$codex_home" python3 <<'PY'
+import glob, json, os, sys
+from datetime import datetime
+
+codex_home = os.environ["CODEX_SWITCHER_HOME"]
+sessions_dir = os.path.join(codex_home, "sessions")
+rows = []
+if os.path.isdir(sessions_dir):
+    for p in glob.glob(os.path.join(sessions_dir, "**", "*.jsonl"), recursive=True):
+        provider = ""
+        ts = ""
+        try:
+            with open(p, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    try:
+                        d = json.loads(line)
+                    except Exception:
+                        continue
+                    if isinstance(d, dict) and d.get("type") == "session_meta":
+                        pl = d.get("payload") or {}
+                        provider = pl.get("model_provider") or provider
+                        ts = pl.get("timestamp") or ts
+                        break
+        except OSError:
+            continue
+        try:
+            size = os.path.getsize(p)
+        except OSError:
+            size = 0
+        rows.append((provider or "未知", ts or "", size))
+
+if not rows:
+    print("没有找到会话：%s 不存在或为空" % sessions_dir)
+    raise SystemExit(0)
+
+def fmt(ts):
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().strftime("%Y-%m-%d")
+    except Exception:
+        return ts[:10] if ts else ""
+
+total = len(rows)
+total_size = sum(r[2] for r in rows)
+print("会话统计：%d 个会话，%.1f MB" % (total, total_size / 1024 / 1024))
+by_provider = {}
+for provider, ts, size in rows:
+    item = by_provider.setdefault(provider, {"count": 0, "size": 0, "first": "", "last": ""})
+    item["count"] += 1
+    item["size"] += size
+    d = fmt(ts)
+    if d:
+        if not item["first"] or d < item["first"]:
+            item["first"] = d
+        if d > item["last"]:
+            item["last"] = d
+print("按 Provider：")
+for provider in sorted(by_provider, key=lambda k: -by_provider[k]["count"]):
+    item = by_provider[provider]
+    span = "%s ~ %s" % (item["first"], item["last"]) if item["first"] else ""
+    print("  %-16s %3d 个会话 %8.1f MB  %s" % (provider, item["count"], item["size"] / 1024 / 1024, span))
+PY
+}
+
 list_session_completions() {
   command -v python3 >/dev/null 2>&1 || return 0
   CODEX_SWITCHER_HOME="$codex_home" python3 <<'PY'
@@ -667,7 +732,7 @@ completion_candidates() {
   # $@ 为已输入参数（含正在补全的当前词）；位置 = $# - 1
   if [ "$#" -le 1 ]; then
     # 位置 0：命令名位置（含 profile 名）
-    printf '%s\n' list create edit delete remove rm sync-models sessions model doctor vscode official default reset restore help version completion -h --help -V --version
+    printf '%s\n' list create edit delete remove rm sync-models sessions model doctor stats vscode official default reset restore help version completion -h --help -V --version
     list_profiles
     return 0
   fi
@@ -751,6 +816,7 @@ usage() {
   codex-switcher sessions                列出全部会话（跨目录，含主题与所属目录）
   codex-switcher sessions remove <ID>   删除指定会话（rm 亦可，删除前显示主题确认）
   codex-switcher sessions rename <ID> <主题>  重命名会话（主题留空则清除自定义名）
+  codex-switcher stats                   统计全部会话（按 Provider 分组）
   codex-switcher create <名称>           创建新的 profile（干净模板，不会复制主配置）
   codex-switcher edit <名称>             用 vim/指定编辑器打开对应 TOML，退出后自动同步模型
   codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
@@ -830,6 +896,10 @@ case "${1:-}" in
     [ -n "$new_model" ] || die "无效选择。"
     set_profile_model "$name" "$new_model"
     echo "已将 $name 的 model 切换为：$new_model"
+    exit 0
+    ;;
+  stats)
+    stats
     exit 0
     ;;
   doctor)

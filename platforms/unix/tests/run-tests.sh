@@ -115,6 +115,11 @@ assert all("key_ok" in p and "experimental_bearer_token" not in p for p in d)
 ' "$test_root/list.json"
 test "$(CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete list --json | grep -c '^--json$')" = "1"
 
+# stats：会话统计
+CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" stats | grep -q '会话统计'
+CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" stats | grep -q 'custom'
+CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete stats | grep -q '^stats$'
+
 HOME="$test_home" "$bin_dir/codex-switcher" completion bash | grep -q '_codex_switcher_complete'
 HOME="$test_home" "$bin_dir/codex-switcher" completion zsh | grep -q 'compdef'
 HOME="$test_home" "$bin_dir/codex-switcher" completion fish | grep -q 'complete -c codex-switcher'

@@ -498,6 +498,25 @@ Test-Case -Name 'list --json outputs machine readable profiles' {
     }
 }
 
+Test-Case -Name 'stats aggregates sessions by provider' {
+    $ctx = New-TestContext
+    try {
+        $sid = '019fabc1-2222-3333-4444-555566667777'
+        $day = Join-Path $ctx.Home 'sessions\2026\08\24'
+        New-Item -ItemType Directory -Force -Path $day | Out-Null
+        Set-Content -LiteralPath (Join-Path $day "rollout-2026-08-24T10-00-00-$sid.jsonl") -Value @(
+            '{"timestamp":"2026-08-24T02:00:00.000Z","type":"session_meta","payload":{"session_id":"' + $sid + '","id":"' + $sid + '","cwd":"C:\work","model_provider":"custom","timestamp":"2026-08-24T02:00:00.000Z"}}'
+        ) -Encoding UTF8
+        $env = @{ CODEX_SWITCHER_CODEX_HOME = $ctx.Home }
+        $r = Invoke-Switcher -CommandArgs @('stats') -TestEnv $env
+        Assert-Equal 0 $r.ExitCode 'stats should exit 0'
+        Assert-Contains $r.Output '会话统计' 'stats should print summary'
+        Assert-Contains $r.Output 'custom' 'stats should group by provider'
+    } finally {
+        Remove-TempDir -Path $ctx.Home
+    }
+}
+
 Test-Case -Name 'create writes profile template' {
     $ctx = New-TestContext
     try {
