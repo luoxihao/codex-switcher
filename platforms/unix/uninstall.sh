@@ -16,7 +16,11 @@ for target in \
   "$bin_dir/codex-switcher" \
   "$codex_home_dir/bin/codex-switcher" \
   "$codex_home_dir/codex-switcher-package/bin/codex-switcher" \
-  "$codex_home_dir/deepseek-models.json"; do
+  "$codex_home_dir/deepseek-models.json" \
+  "$HOME/.local/share/codex-switcher/completions/codex-switcher.bash" \
+  "$HOME/.local/share/codex-switcher/completions/_codex-switcher.zsh" \
+  "$HOME/.local/share/codex-switcher/completions/codex-switcher.fish" \
+  "${XDG_CONFIG_HOME:-$HOME/.config}/fish/completions/codex-switcher.fish"; do
   if [ -f "$target" ]; then
     rm -f "$target"
     removed=1
@@ -24,20 +28,21 @@ for target in \
   fi
 done
 
-# 移除安装脚本写入的 PATH 标记及其后的 PATH 导出行
+# 移除安装脚本写入的 PATH / 补全标记及其后的导出行
 for rc_file in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
   [ -f "$rc_file" ] || continue
-  if grep -Fq '# codex-switcher user bin' "$rc_file"; then
+  if grep -Fq '# codex-switcher user bin' "$rc_file" || grep -Fq '# codex-switcher completions' "$rc_file"; then
     tmp="$rc_file.tmp.$$"
     awk '
       /^# codex-switcher user bin$/ { skip=1; next }
-      skip && /^export PATH=/ { skip=0; next }
+      /^# codex-switcher completions$/ { skip=1; next }
+      skip && /^(export PATH=|source )/ { skip=0; next }
       { skip=0; print }
     ' "$rc_file" > "$tmp"
     chmod --reference="$rc_file" "$tmp" 2>/dev/null || chmod 644 "$tmp"
     mv -f "$tmp" "$rc_file"
     removed=1
-    echo "已移除 $rc_file 中的 codex-switcher PATH 配置"
+    echo "已移除 $rc_file 中的 codex-switcher 配置"
   fi
 done
 

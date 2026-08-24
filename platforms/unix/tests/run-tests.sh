@@ -12,15 +12,25 @@ test -f "$repo_root/platforms/unix/bin/codex-switcher"
 
 bin_dir="$test_root/bin"
 codex_home="$test_root/codex-home"
+test_home="$test_root/home"
+mkdir -p "$test_home"
 
 CODEX_SWITCHER_BIN_DIR="$bin_dir" \
 CODEX_SWITCHER_CODEX_HOME="$codex_home" \
+HOME="$test_home" \
 CODEX_SWITCHER_NO_PATH=1 \
 sh "$repo_root/install.sh"
 
 test -x "$bin_dir/codex-switcher"
 test -f "$codex_home/deepseek-models.json"
 "$bin_dir/codex-switcher" --help >/dev/null
+
+test -f "$test_home/.local/share/codex-switcher/completions/codex-switcher.bash"
+test -f "$test_home/.local/share/codex-switcher/completions/_codex-switcher.zsh"
+test -f "$test_home/.local/share/codex-switcher/completions/codex-switcher.fish"
+if [ "${SHELL##*/}" = "bash" ]; then
+  grep -Fq '# codex-switcher completions' "$test_home/.bashrc"
+fi
 
 test "$(CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete | grep -c '^sessions$')" = "1"
 test "$(CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete sessions | grep -c '^sessions$')" = "1"
@@ -40,22 +50,27 @@ CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete ses
 CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete edit demo | grep -q '^demo$'
 CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete delete demo | grep -q '^--yes$'
 
-"$repo_root/platforms/unix/bin/codex-switcher" completion bash | grep -q '_codex_switcher_complete'
-"$repo_root/platforms/unix/bin/codex-switcher" completion zsh | grep -q 'compdef'
-"$repo_root/platforms/unix/bin/codex-switcher" completion fish | grep -q 'complete -c codex-switcher'
+HOME="$test_home" "$bin_dir/codex-switcher" completion bash | grep -q '_codex_switcher_complete'
+HOME="$test_home" "$bin_dir/codex-switcher" completion zsh | grep -q 'compdef'
+HOME="$test_home" "$bin_dir/codex-switcher" completion fish | grep -q 'complete -c codex-switcher'
 
 PATH="$bin_dir:$PATH" bash -c '
-  source "$1/platforms/unix/completions/codex-switcher.bash"
+  source "$1/.local/share/codex-switcher/completions/codex-switcher.bash"
   COMP_WORDS=(codex-switcher sess)
   COMP_CWORD=1
   _codex_switcher_complete
   printf "%s\n" "${COMPREPLY[@]}" | grep -qx sessions
-' bash "$repo_root"
+' bash "$test_home"
 
 CODEX_SWITCHER_BIN_DIR="$bin_dir" \
 CODEX_SWITCHER_CODEX_HOME="$codex_home" \
+HOME="$test_home" \
 sh "$repo_root/uninstall.sh"
 
 test ! -e "$bin_dir/codex-switcher"
 test ! -e "$codex_home/deepseek-models.json"
-printf '%s\n' 'PASS root Unix install and uninstall entrypoints'
+test ! -e "$test_home/.local/share/codex-switcher/completions/codex-switcher.bash"
+if [ "${SHELL##*/}" = "bash" ]; then
+  ! grep -Fq '# codex-switcher completions' "$test_home/.bashrc"
+fi
+printf '%s\n' 'PASS Unix install, completions and uninstall'

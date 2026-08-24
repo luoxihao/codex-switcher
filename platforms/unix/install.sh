@@ -34,24 +34,24 @@ fi
 add_path=1
 [ "${CODEX_SWITCHER_NO_PATH:-0}" = "1" ] && add_path=0
 
-if [ "$add_path" -eq 1 ]; then
-  shell_name=${SHELL##*/}
-  case "$shell_name" in
-    zsh)
-      rc_file=$HOME/.zshrc
-      ;;
-    bash)
-      if [ "$(uname -s)" = "Darwin" ]; then
-        rc_file=$HOME/.bash_profile
-      else
-        rc_file=$HOME/.bashrc
-      fi
-      ;;
-    *)
-      rc_file=$HOME/.profile
-      ;;
-  esac
+shell_name=${SHELL##*/}
+case "$shell_name" in
+  zsh)
+    rc_file=$HOME/.zshrc
+    ;;
+  bash)
+    if [ "$(uname -s)" = "Darwin" ]; then
+      rc_file=$HOME/.bash_profile
+    else
+      rc_file=$HOME/.bashrc
+    fi
+    ;;
+  *)
+    rc_file=$HOME/.profile
+    ;;
+esac
 
+if [ "$add_path" -eq 1 ]; then
   marker='# codex-switcher user bin'
   if [ ! -f "$rc_file" ]; then
     : > "$rc_file"
@@ -62,6 +62,45 @@ if [ "$add_path" -eq 1 ]; then
       printf 'export PATH="$HOME/.local/bin:$PATH"\n'
     } >> "$rc_file"
     echo "已将 ~/.local/bin 加入 $rc_file"
+  fi
+fi
+
+if [ "${CODEX_SWITCHER_NO_COMPLETION:-0}" != "1" ]; then
+  completions_dir="$HOME/.local/share/codex-switcher/completions"
+  mkdir -p "$completions_dir"
+  install -m 0644 "$package_dir/completions/codex-switcher.bash" "$completions_dir/codex-switcher.bash"
+  install -m 0644 "$package_dir/completions/_codex-switcher.zsh" "$completions_dir/_codex-switcher.zsh"
+  install -m 0644 "$package_dir/completions/codex-switcher.fish" "$completions_dir/codex-switcher.fish"
+  echo "已安装补全文件：$completions_dir"
+
+  case "$shell_name" in
+    zsh)
+      marker='# codex-switcher completions'
+      if ! grep -Fq "$marker" "$rc_file" 2>/dev/null; then
+        {
+          printf '\n%s\n' "$marker"
+          printf 'source "$HOME/.local/share/codex-switcher/completions/_codex-switcher.zsh"\n'
+        } >> "$rc_file"
+        echo "已在 $rc_file 启用 zsh 补全"
+      fi
+      ;;
+    bash)
+      marker='# codex-switcher completions'
+      if ! grep -Fq "$marker" "$rc_file" 2>/dev/null; then
+        {
+          printf '\n%s\n' "$marker"
+          printf 'source "$HOME/.local/share/codex-switcher/completions/codex-switcher.bash"\n'
+        } >> "$rc_file"
+        echo "已在 $rc_file 启用 bash 补全"
+      fi
+      ;;
+  esac
+
+  fish_dir="${XDG_CONFIG_HOME:-$HOME/.config}/fish/completions"
+  if command -v fish >/dev/null 2>&1 || [ -d "${XDG_CONFIG_HOME:-$HOME/.config}/fish" ]; then
+    mkdir -p "$fish_dir"
+    install -m 0644 "$package_dir/completions/codex-switcher.fish" "$fish_dir/codex-switcher.fish"
+    echo "已安装 fish 补全：$fish_dir/codex-switcher.fish"
   fi
 fi
 

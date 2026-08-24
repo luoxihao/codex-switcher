@@ -69,3 +69,15 @@ codex-switcher sessions rm <会话ID>
 ```
 
 详细说明见 [会话管理指南](../guides/sessions.md)。
+
+## 补全
+
+安装时自动注册 PowerShell 补全到 `$PROFILE`，新开 PowerShell 窗口即可 Tab 补全命令、profile 名称与会话 ID（带主题提示）。
+
+手动输出补全脚本：
+
+```powershell
+codex-switcher completion powershell
+```
+
+禁用：`$env:CODEX_SWITCHER_NO_COMPLETION=1` 后重新安装。详细说明见 [补全指南](../guides/completion.md)。

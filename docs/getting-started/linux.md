@@ -52,3 +52,15 @@ codex-switcher sessions rm <会话ID>
 ```
 
 详细说明见 [会话管理指南](../guides/sessions.md)。
+
+## 补全
+
+安装时自动启用检测到的默认 shell 的补全（bash / zsh / fish），新开终端即可 Tab 补全命令、profile 名称与会话 ID。
+
+手动输出补全脚本：
+
+```sh
+codex-switcher completion bash
+```
+
+禁用：`CODEX_SWITCHER_NO_COMPLETION=1 sh install.sh`。详细说明见 [补全指南](../guides/completion.md)。

@@ -14,12 +14,18 @@ $codexHome = if (-not [string]::IsNullOrWhiteSpace($env:CODEX_SWITCHER_CODEX_HOM
 } else {
     Join-Path $env:USERPROFILE '.codex'
 }
+$completionDir = if (-not [string]::IsNullOrWhiteSpace($env:CODEX_SWITCHER_COMPLETIONS_DIR)) {
+    $env:CODEX_SWITCHER_COMPLETIONS_DIR
+} else {
+    Join-Path $env:LOCALAPPDATA 'codex-switcher\completions'
+}
 
 $removed = 0
 $targets = @(
     (Join-Path $binDir 'codex-switcher-main.ps1'),
     (Join-Path $binDir 'codex-switcher.ps1'),
     (Join-Path $binDir 'codex-switcher.cmd'),
+    (Join-Path $completionDir 'codex-switcher-completion.ps1'),
     (Join-Path $codexHome 'bin\codex-switcher-main.ps1'),
     (Join-Path $codexHome 'bin\codex-switcher.ps1'),
     (Join-Path $codexHome 'bin\codex-switcher.cmd'),
@@ -47,6 +53,23 @@ if (Test-Path -LiteralPath $marker -PathType Leaf) {
         $removed = 1
     }
     Remove-Item -LiteralPath $marker -Force
+}
+
+$profilePath = if (-not [string]::IsNullOrWhiteSpace($env:CODEX_SWITCHER_PS_PROFILE)) {
+    $env:CODEX_SWITCHER_PS_PROFILE
+} else {
+    $PROFILE.CurrentUserAllHosts
+}
+if (Test-Path -LiteralPath $profilePath -PathType Leaf) {
+    $profileContent = Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8
+    if ($profileContent -match '# codex-switcher completions') {
+        $tmpPath = "$profilePath.tmp.$PID"
+        $newContent = $profileContent -replace '(?m)^# codex-switcher completions\r?\n\. "[^"]*"\r?\n', ''
+        [System.IO.File]::WriteAllText($tmpPath, $newContent, (New-Object System.Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath $tmpPath -Destination $profilePath -Force
+        $removed = 1
+        Write-Output "已移除 $profilePath 中的 codex-switcher 补全配置"
+    }
 }
 
 if ($removed -eq 0) {

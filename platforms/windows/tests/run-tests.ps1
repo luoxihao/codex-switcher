@@ -591,12 +591,16 @@ exit 0
 Test-Case -Name 'install copies files and preserves existing deepseek models' {
     $codexHome = New-TempDir
     $bin = New-TempDir
+    $completionDir = New-TempDir
+    $profile = Join-Path $bin 'test-profile.ps1'
     try {
         Set-Content -LiteralPath (Join-Path $codexHome 'deepseek-models.json') -Value '{"models":[{"slug":"existing"}]}' -Encoding UTF8
         $rootInstall = Join-Path $RepoRoot 'install.ps1'
         $r = Invoke-PowerShellScript -FilePath $rootInstall -ArgumentList @('-SkipCodex') -TestEnv @{
             CODEX_SWITCHER_BIN_DIR = $bin
             CODEX_SWITCHER_CODEX_HOME = $codexHome
+            CODEX_SWITCHER_COMPLETIONS_DIR = $completionDir
+            CODEX_SWITCHER_PS_PROFILE = $profile
             CODEX_SWITCHER_NO_PATH = '1'
         }
         Assert-Equal 0 $r.ExitCode 'install should exit 0'
@@ -604,6 +608,8 @@ Test-Case -Name 'install copies files and preserves existing deepseek models' {
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $bin 'codex-switcher.ps1'))) 'install should remove stale ps1'
         Assert-FileExists -Path (Join-Path $bin 'codex-switcher.cmd') -Message 'install should copy cmd'
         Assert-FileContains -Path (Join-Path $codexHome 'deepseek-models.json') -Needle 'existing' -Message 'install should not overwrite existing deepseek models'
+        Assert-FileExists -Path (Join-Path $completionDir 'codex-switcher-completion.ps1') -Message 'install should copy completion script'
+        Assert-FileContains -Path $profile -Needle '# codex-switcher completions' -Message 'install should enable completions in profile'
 
         $r2 = Invoke-Process -FilePath (Join-Path $bin 'codex-switcher.cmd') -ArgumentList @('--version') -TestEnv @{
             CODEX_SWITCHER_CODEX_HOME = $codexHome
@@ -613,35 +619,47 @@ Test-Case -Name 'install copies files and preserves existing deepseek models' {
     } finally {
         Remove-TempDir -Path $codexHome
         Remove-TempDir -Path $bin
+        Remove-TempDir -Path $completionDir
     }
 }
 
 Test-Case -Name 'uninstall removes switcher files but keeps user data' {
     $codexHome = New-TempDir
     $bin = New-TempDir
+    $completionDir = New-TempDir
+    $profile = Join-Path $bin 'test-profile.ps1'
     try {
         Set-Content -LiteralPath (Join-Path $codexHome 'deepseek-models.json') -Value '{"models":[{"slug":"existing"}]}' -Encoding UTF8
         $null = Invoke-Process -FilePath $script:Install -TestEnv @{
             CODEX_SWITCHER_BIN_DIR = $bin
             CODEX_SWITCHER_CODEX_HOME = $codexHome
+            CODEX_SWITCHER_COMPLETIONS_DIR = $completionDir
+            CODEX_SWITCHER_PS_PROFILE = $profile
             CODEX_SWITCHER_NO_PATH = '1'
         }
         $null = Invoke-Switcher -CommandArgs @('create', 'demo') -TestEnv @{ CODEX_SWITCHER_CODEX_HOME = $codexHome }
+        Assert-FileContains -Path $profile -Needle '# codex-switcher completions' -Message 'install should enable completions in profile'
 
         $rootUninstall = Join-Path $RepoRoot 'uninstall.ps1'
         $r = Invoke-PowerShellScript -FilePath $rootUninstall -TestEnv @{
             CODEX_SWITCHER_BIN_DIR = $bin
             CODEX_SWITCHER_CODEX_HOME = $codexHome
+            CODEX_SWITCHER_COMPLETIONS_DIR = $completionDir
+            CODEX_SWITCHER_PS_PROFILE = $profile
         }
         Assert-Equal 0 $r.ExitCode 'uninstall should exit 0'
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $bin 'codex-switcher-main.ps1'))) 'uninstall should remove main ps1'
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $bin 'codex-switcher.ps1'))) 'uninstall should remove stale ps1'
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $bin 'codex-switcher.cmd'))) 'uninstall should remove cmd'
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $completionDir 'codex-switcher-completion.ps1'))) 'uninstall should remove completion script'
+        $profileContent = Get-Content -LiteralPath $profile -Raw -Encoding UTF8
+        Assert-True ($profileContent -notmatch '# codex-switcher completions') 'uninstall should remove profile marker'
         Assert-FileExists -Path (Join-Path $codexHome 'demo.config.toml') -Message 'uninstall should keep profile'
         Assert-FileExists -Path (Join-Path $codexHome 'deepseek-models.json') -Message 'uninstall should keep deepseek models'
     } finally {
         Remove-TempDir -Path $codexHome
         Remove-TempDir -Path $bin
+        Remove-TempDir -Path $completionDir
     }
 }
 

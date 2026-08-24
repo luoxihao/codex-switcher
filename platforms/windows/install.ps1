@@ -82,6 +82,41 @@ if ($env:CODEX_SWITCHER_NO_PATH -ne '1') {
     }
 }
 
+if ($env:CODEX_SWITCHER_NO_COMPLETION -ne '1') {
+    $completionSource = Join-Path $platformDir 'completions\codex-switcher-completion.ps1'
+    if (Test-Path -LiteralPath $completionSource -PathType Leaf) {
+        $completionDir = if (-not [string]::IsNullOrWhiteSpace($env:CODEX_SWITCHER_COMPLETIONS_DIR)) {
+            $env:CODEX_SWITCHER_COMPLETIONS_DIR
+        } else {
+            Join-Path $env:LOCALAPPDATA 'codex-switcher\completions'
+        }
+        New-Item -ItemType Directory -Force -Path $completionDir | Out-Null
+        $completionTarget = Join-Path $completionDir 'codex-switcher-completion.ps1'
+        Copy-Item -LiteralPath $completionSource -Destination $completionTarget -Force
+        Write-Output "已安装补全文件：$completionTarget"
+
+        $profilePath = if (-not [string]::IsNullOrWhiteSpace($env:CODEX_SWITCHER_PS_PROFILE)) {
+            $env:CODEX_SWITCHER_PS_PROFILE
+        } else {
+            $PROFILE.CurrentUserAllHosts
+        }
+        if (-not (Test-Path -LiteralPath $profilePath -PathType Leaf)) {
+            $profileDir = Split-Path -Parent $profilePath
+            if (-not (Test-Path -LiteralPath $profileDir -PathType Container)) {
+                New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+            }
+            New-Item -ItemType File -Force -Path $profilePath | Out-Null
+        }
+        $profileContent = Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+        $marker = '# codex-switcher completions'
+        if ($null -eq $profileContent -or $profileContent -notmatch [regex]::Escape($marker)) {
+            $sourceLine = '. "' + $completionTarget + '"'
+            Add-Content -LiteralPath $profilePath -Value ("`n$marker`n$sourceLine`n") -Encoding UTF8
+            Write-Output "已在 PowerShell Profile 启用补全：$profilePath"
+        }
+    }
+}
+
 $existingCodex = Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($SkipCodex) {
     Write-Output '已跳过 Codex CLI 安装。'
