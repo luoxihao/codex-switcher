@@ -58,3 +58,13 @@ codex-switcher sync-models my-api
 codex-switcher my-api
 codex-switcher official
 ```
+
+## 会话管理
+
+查看本地会话（跨目录，含主题与所属目录）：
+
+```powershell
+codex-switcher sessions
+```
+
+详细说明见 [会话管理指南](../guides/sessions.md)。

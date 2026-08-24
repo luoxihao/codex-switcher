@@ -41,3 +41,13 @@ sh uninstall.sh
 - 命令安装到 `~/.local/bin/codex-switcher`，默认加入 `~/.bashrc`、`~/.bash_profile` 或 `~/.profile`。
 - 数据目录默认是 `~/.codex`，可用 `CODEX_SWITCHER_CODEX_HOME` 覆盖。
 - 安装后重开终端，或执行 `export PATH="$HOME/.local/bin:$PATH"`。
+
+## 会话管理
+
+查看本地会话（跨目录，含主题与所属目录）：
+
+```sh
+codex-switcher sessions
+```
+
+详细说明见 [会话管理指南](../guides/sessions.md)。

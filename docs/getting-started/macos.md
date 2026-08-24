@@ -34,3 +34,13 @@ POSIX 实现与 Linux 共用。当前尚未在 Intel 与 Apple Silicon 真机上
 codex-switcher --version
 codex-switcher official
 ```
+
+## 会话管理
+
+查看本地会话（跨目录，含主题与所属目录）：
+
+```sh
+codex-switcher sessions
+```
+
+详细说明见 [会话管理指南](../guides/sessions.md)。

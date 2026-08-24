@@ -180,7 +180,7 @@ function Test-ValidName {
 function Test-ReservedName {
     param([string]$Name)
 
-    if ($Name -in @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'official', 'default', 'reset', 'restore', 'help', 'version')) {
+    if ($Name -in @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'official', 'default', 'reset', 'restore', 'help', 'version')) {
         throw "'$Name' 是保留命令名，请换一个 profile 名称。"
     }
 }
@@ -448,6 +448,170 @@ function Remove-Profile {
     Write-Output "已删除 profile：$Name"
 }
 
+function Get-SessionTopic {
+    param([string]$SessionPath)
+
+    $nameFile = "$SessionPath.name"
+    if (Test-Path -LiteralPath $nameFile -PathType Leaf) {
+        $line = Get-Content -LiteralPath $nameFile -Encoding UTF8 -TotalCount 1 -ErrorAction SilentlyContinue
+        if ($null -ne $line -and -not [string]::IsNullOrWhiteSpace($line)) {
+            return $line.Trim()
+        }
+    }
+
+    foreach ($line in [System.IO.File]::ReadLines($SessionPath)) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        try {
+            $obj = $line | ConvertFrom-Json
+        } catch {
+            continue
+        }
+        if ($null -eq $obj) {
+            continue
+        }
+        if ($obj.type -eq 'event_msg' -and $null -ne $obj.payload -and $obj.payload.type -eq 'user_message' -and -not [string]::IsNullOrWhiteSpace($obj.payload.message)) {
+            $topic = ($obj.payload.message -replace '\s+', ' ').Trim()
+            if ($topic.Length -gt 60) {
+                $topic = $topic.Substring(0, 57) + '...'
+            }
+            return $topic
+        }
+    }
+    return ''
+}
+
+function Format-LocalSessionTime {
+    param([string]$Ts)
+
+    if ([string]::IsNullOrWhiteSpace($Ts)) {
+        return '未知'
+    }
+    try {
+        return ([DateTime]::Parse($Ts).ToLocalTime()).ToString('yyyy-MM-dd HH:mm')
+    } catch {
+        if ($Ts.Length -ge 16) {
+            return $Ts.Substring(0, 16).Replace('T', ' ')
+        }
+        return $Ts
+    }
+}
+
+function Invoke-Sessions {
+    $codexHome = Get-CodexHome
+    $sessionsDir = Join-Path $codexHome 'sessions'
+    if (-not (Test-Path -LiteralPath $sessionsDir -PathType Container)) {
+        Write-Output "没有找到会话：$sessionsDir 不存在或为空"
+        return
+    }
+
+    $rows = @()
+    foreach ($p in Get-ChildItem -LiteralPath $sessionsDir -Recurse -Filter '*.jsonl' -File -ErrorAction SilentlyContinue) {
+        $ts = $null
+        $sid = $null
+        $cwd = $null
+        $provider = $null
+        $topic = $null
+
+        $nameFile = "$($p.FullName).name"
+        if (Test-Path -LiteralPath $nameFile -PathType Leaf) {
+            $topic = Get-Content -LiteralPath $nameFile -Encoding UTF8 -TotalCount 1 -ErrorAction SilentlyContinue
+            if ($null -ne $topic) {
+                $topic = $topic.Trim()
+            }
+            if ([string]::IsNullOrWhiteSpace($topic)) {
+                $topic = $null
+            }
+        }
+
+        foreach ($line in [System.IO.File]::ReadLines($p.FullName)) {
+            if ([string]::IsNullOrWhiteSpace($line)) {
+                continue
+            }
+            try {
+                $obj = $line | ConvertFrom-Json
+            } catch {
+                continue
+            }
+            if ($null -eq $obj) {
+                continue
+            }
+            if ($obj.type -eq 'session_meta') {
+                if ($null -eq $obj.payload) {
+                    continue
+                }
+                $pl = $obj.payload
+                if ([string]::IsNullOrWhiteSpace($sid)) {
+                    $sid = $pl.session_id
+                    if ([string]::IsNullOrWhiteSpace($sid)) {
+                        $sid = $pl.id
+                    }
+                }
+                if ([string]::IsNullOrWhiteSpace($cwd)) {
+                    $cwd = $pl.cwd
+                }
+                if ([string]::IsNullOrWhiteSpace($provider)) {
+                    $provider = $pl.model_provider
+                }
+                if ([string]::IsNullOrWhiteSpace($ts)) {
+                    $ts = $pl.timestamp
+                }
+            }
+            elseif ($null -eq $topic -and $obj.type -eq 'event_msg' -and $null -ne $obj.payload -and $obj.payload.type -eq 'user_message' -and -not [string]::IsNullOrWhiteSpace($obj.payload.message)) {
+                $topic = ($obj.payload.message -replace '\s+', ' ').Trim()
+                if ($topic.Length -gt 60) {
+                    $topic = $topic.Substring(0, 57) + '...'
+                }
+            }
+            if (-not [string]::IsNullOrWhiteSpace($sid) -and -not [string]::IsNullOrWhiteSpace($ts) -and $null -ne $topic) {
+                break
+            }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($sid)) {
+            $sid = $p.Name
+        }
+        if ($null -eq $topic) {
+            $topic = ''
+        }
+        $folderDate = ''
+        $m = [regex]::Match($p.FullName, '(\\|/)sessions(\\|/)(\d{4})(\\|/)(\d{2})(\\|/)(\d{2})(\\|/)')
+        if ($m.Success) {
+            $folderDate = "$($m.Groups[3].Value)-$($m.Groups[5].Value)-$($m.Groups[7].Value)"
+        }
+        try {
+            $size = (Get-Item -LiteralPath $p.FullName -ErrorAction Stop).Length
+        } catch {
+            $size = 0
+        }
+        $sortTs = $ts
+        if ([string]::IsNullOrWhiteSpace($sortTs)) {
+            $sortTs = $folderDate
+        }
+        $rows += [pscustomobject]@{
+            SortTs = $sortTs
+            Ts = $ts
+            Sid = $sid
+            Provider = $provider
+            Cwd = $cwd
+            Size = $size
+            Topic = $topic
+        }
+    }
+
+    if ($rows.Count -eq 0) {
+        Write-Output "没有找到会话：$sessionsDir 不存在或为空"
+        return
+    }
+
+    $rows = $rows | Sort-Object { $_.SortTs }
+    Write-Output ('{0,-17} {1,-36} {2,-16} {3,8}  {4,-24} {5}' -f '时间', '会话 ID', 'Provider', '大小', '目录', '主题')
+    foreach ($r in $rows) {
+        Write-Output ('{0,-17} {1,-36} {2,-16} {3,6}KB  {4,-24} {5}' -f (Format-LocalSessionTime $r.Ts), $r.Sid, $r.Provider, [int]($r.Size / 1024), $r.Cwd, $r.Topic)
+    }
+}
+
 function Clear-ProviderEnvironment {
     Remove-Item Env:ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue
     Remove-Item Env:ANTHROPIC_AUTH_TOKEN -ErrorAction SilentlyContinue
@@ -596,6 +760,7 @@ function Show-Usage {
   codex-switcher official                使用默认/官方配置启动 Codex
   codex-switcher vscode <名称>           带指定供应商环境启动 VS Code Codex
   codex-switcher list                    列出已有 profile
+  codex-switcher sessions                列出全部会话（跨目录，含主题与所属目录）
   codex-switcher create <名称>           创建新的 profile（干净模板，不会复制主配置）
   codex-switcher edit <名称>             用编辑器打开对应 TOML，退出后自动同步模型
   codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
@@ -629,12 +794,16 @@ function Invoke-CodexSwitcher {
             '-h' { Show-Usage; return }
             '--help' { Show-Usage; return }
             'help' { Show-Usage; return }
-            '-v' { Write-Output 'codex-switcher 3.0.0-windows'; return }
-            '--version' { Write-Output 'codex-switcher 3.0.0-windows'; return }
-            'version' { Write-Output 'codex-switcher 3.0.0-windows'; return }
+            '-v' { Write-Output 'codex-switcher 3.1.0-windows'; return }
+            '--version' { Write-Output 'codex-switcher 3.1.0-windows'; return }
+            'version' { Write-Output 'codex-switcher 3.1.0-windows'; return }
             'list' {
                 $codexHome = Get-CodexHome
                 Get-ProfileList -CodexHome $codexHome
+                return
+            }
+            'sessions' {
+                Invoke-Sessions
                 return
             }
             'create' {

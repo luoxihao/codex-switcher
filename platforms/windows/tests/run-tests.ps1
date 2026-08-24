@@ -350,7 +350,30 @@ Test-Case -Name 'version prints windows version' {
             FAKE_CODEX_LOG = $ctx.Log
         }
         Assert-Equal 0 $r.ExitCode 'version should exit 0'
-        Assert-Contains $r.Output 'codex-switcher 3.0.0-windows' 'version output should include windows marker'
+        Assert-Contains $r.Output 'codex-switcher 3.1.0-windows' 'version output should include windows marker'
+    } finally {
+        Remove-TempDir -Path $ctx.Home
+    }
+}
+
+Test-Case -Name 'sessions lists topics' {
+    $ctx = New-TestContext
+    try {
+        $sid = '019fabc1-2222-3333-4444-555566667777'
+        $day = Join-Path $ctx.Home 'sessions\2026\08\24'
+        New-Item -ItemType Directory -Force -Path $day | Out-Null
+        $rollout = Join-Path $day "rollout-2026-08-24T10-00-00-$sid.jsonl"
+        Set-Content -LiteralPath $rollout -Value @(
+            '{"timestamp":"2026-08-24T02:00:00.000Z","type":"session_meta","payload":{"session_id":"' + $sid + '","id":"' + $sid + '","cwd":"C:\work","model_provider":"custom","timestamp":"2026-08-24T02:00:00.000Z"}}',
+            '{"timestamp":"2026-08-24T02:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"Windows 测试主题"}}'
+        ) -Encoding UTF8
+        $env = @{ CODEX_SWITCHER_CODEX_HOME = $ctx.Home }
+
+        $r = Invoke-Switcher -CommandArgs @('sessions') -TestEnv $env
+        Assert-Equal 0 $r.ExitCode 'sessions should exit 0'
+        Assert-Contains $r.Output 'Windows 测试主题' 'sessions should show topic'
+        Assert-Contains $r.Output $sid 'sessions should show session id'
+
     } finally {
         Remove-TempDir -Path $ctx.Home
     }
@@ -546,7 +569,7 @@ Test-Case -Name 'install copies files and preserves existing deepseek models' {
             CODEX_SWITCHER_CODEX_HOME = $codexHome
         }
         Assert-Equal 0 $r2.ExitCode 'installed cmd should run'
-        Assert-Contains $r2.Output 'codex-switcher 3.0.0-windows' 'installed cmd should invoke ps1'
+        Assert-Contains $r2.Output 'codex-switcher 3.1.0-windows' 'installed cmd should invoke ps1'
     } finally {
         Remove-TempDir -Path $codexHome
         Remove-TempDir -Path $bin

@@ -349,7 +349,14 @@ def local_time(ts):
 
 if os.path.isdir(sessions_dir):
     for p in glob.glob(os.path.join(sessions_dir, "**", "*.jsonl"), recursive=True):
-        ts = sid = cwd = provider = None
+        ts = sid = cwd = provider = topic = None
+        name_file = p + ".name"
+        if os.path.isfile(name_file):
+            try:
+                with open(name_file, encoding="utf-8", errors="replace") as nf:
+                    topic = nf.readline().strip() or None
+            except OSError:
+                pass
         try:
             with open(p, encoding="utf-8", errors="replace") as f:
                 for line in f:
@@ -357,17 +364,27 @@ if os.path.isdir(sessions_dir):
                         d = json.loads(line)
                     except Exception:
                         continue
-                    if isinstance(d, dict) and d.get("type") == "session_meta":
+                    if not isinstance(d, dict):
+                        continue
+                    if d.get("type") == "session_meta":
                         pl = d.get("payload") or {}
                         sid = pl.get("session_id") or pl.get("id") or sid
                         cwd = pl.get("cwd") or cwd
                         provider = pl.get("model_provider") or provider
                         ts = pl.get("timestamp") or ts
+                    elif topic is None and d.get("type") == "event_msg":
+                        pl = d.get("payload") or {}
+                        if pl.get("type") == "user_message":
+                            topic = pl.get("message") or ""
+                            topic = topic.strip() or None
+                    if sid and ts and topic is not None:
                         break
         except OSError:
             continue
         if not sid:
             sid = os.path.basename(p)
+        if topic is None:
+            topic = ""
         folder_date = ""
         m = re.search(r"/sessions/(\d{4})/(\d{2})/(\d{2})/", p)
         if m:
@@ -376,16 +393,19 @@ if os.path.isdir(sessions_dir):
             size = os.path.getsize(p)
         except OSError:
             size = 0
-        rows.append((ts or folder_date, ts, sid, provider or "", cwd or "", size))
+        rows.append((ts or folder_date, ts, sid, provider or "", cwd or "", size, topic))
 
 if not rows:
     print("没有找到会话：%s 不存在或为空" % sessions_dir)
     raise SystemExit(0)
 
 rows.sort(key=lambda r: r[0])
-lines = ["%-17s %-36s %-16s %8s  %s" % ("时间", "会话 ID", "Provider", "大小", "目录")]
-for _sort_ts, ts, sid, provider, cwd, size in rows:
-    lines.append("%-17s %-36s %-16s %6dKB  %s" % (local_time(ts), sid, provider, size // 1024, cwd))
+lines = ["%-17s %-36s %-16s %8s  %-24s %s" % ("时间", "会话 ID", "Provider", "大小", "目录", "主题")]
+for _sort_ts, ts, sid, provider, cwd, size, topic in rows:
+    topic = " ".join(topic.split())
+    if len(topic) > 60:
+        topic = topic[:57] + "..."
+    lines.append("%-17s %-36s %-16s %6dKB  %-24s %s" % (local_time(ts), sid, provider, size // 1024, cwd, topic))
 out = "\n".join(lines) + "\n"
 try:
     sys.stdout.write(out)
@@ -402,7 +422,7 @@ usage() {
   codex-switcher official                使用默认/官方配置启动 Codex
   codex-switcher vscode <名称>           带指定供应商环境启动 VS Code Codex
   codex-switcher list                    列出已有 profile
-  codex-switcher sessions                列出全部会话（跨目录，含所属目录）
+  codex-switcher sessions                列出全部会话（跨目录，含主题与所属目录）
   codex-switcher create <名称>           创建新的 profile（干净模板，不会复制主配置）
   codex-switcher edit <名称>             用 vim/指定编辑器打开对应 TOML，退出后自动同步模型
   codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
