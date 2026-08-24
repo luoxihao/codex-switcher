@@ -235,7 +235,7 @@ function Test-ValidName {
 function Test-ReservedName {
     param([string]$Name)
 
-    if ($Name -in @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'model', 'official', 'default', 'reset', 'restore', 'help', 'version', 'completion', '__complete')) {
+    if ($Name -in @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'model', 'doctor', 'official', 'default', 'reset', 'restore', 'help', 'version', 'completion', '__complete')) {
         throw "'$Name' 是保留命令名，请换一个 profile 名称。"
     }
 }
@@ -786,7 +786,7 @@ function Get-CompletionCandidates {
     param([string[]]$Words)
 
     if ($Words.Count -le 1) {
-        Write-Output @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'model', 'vscode', 'official', 'default', 'reset', 'restore', 'help', 'version', 'completion', '-h', '--help', '-V', '--version')
+        Write-Output @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'model', 'doctor', 'vscode', 'official', 'default', 'reset', 'restore', 'help', 'version', 'completion', '-h', '--help', '-V', '--version')
         Get-ProfileList -CodexHome (Get-CodexHome)
         return
     }
@@ -808,6 +808,12 @@ function Get-CompletionCandidates {
                 Get-ProfileList -CodexHome (Get-CodexHome)
             } elseif ($Words.Count -eq 3) {
                 try { Get-ProfileModels -Name $Words[1] } catch { }
+            }
+            return
+        }
+        'doctor' {
+            if ($Words.Count -eq 2) {
+                Get-ProfileList -CodexHome (Get-CodexHome)
             }
             return
         }
@@ -875,6 +881,84 @@ function Print-CompletionScript {
         }
     }
     throw "找不到 $name；请从源码目录运行，或重新执行 install.ps1 安装补全文件。"
+}
+
+function Invoke-Doctor {
+    param([string]$Only)
+
+    $problems = 0
+    Write-Output '== codex-switcher doctor =='
+    try {
+        $codexBin = Find-Codex
+        Write-Output "[OK] Codex CLI：$codexBin"
+    } catch {
+        Write-Output '[警告] 未找到 Codex CLI；可设置 CODEX_SWITCHER_CODEX_BIN'
+        $problems++
+    }
+    $codexHome = Get-CodexHome
+    Write-Output "Codex 主目录：$codexHome"
+    if (-not [string]::IsNullOrWhiteSpace($Only)) {
+        Test-ValidName -Name $Only
+        Test-ReservedName -Name $Only
+        $profiles = @($Only)
+    } else {
+        $profiles = @(Get-ProfileList -CodexHome $codexHome)
+    }
+    if ($profiles.Count -eq 0) {
+        Write-Output '[警告] 没有任何 profile；先运行 codex-switcher create <名称>'
+        $problems++
+    }
+    foreach ($name in $profiles) {
+        Write-Output "---- profile：$name ----"
+        $profilePath = Join-Path $codexHome "$name.config.toml"
+        if (-not (Test-Path -LiteralPath $profilePath -PathType Leaf)) {
+            Write-Output "[警告] 配置文件不存在：$profilePath"
+            $problems++
+            continue
+        }
+        $baseUrl = Get-TomlValue -Path $profilePath -Key 'base_url'
+        $key = Get-TomlValue -Path $profilePath -Key 'experimental_bearer_token'
+        $catalog = Get-TomlValue -Path $profilePath -Key 'model_catalog_json'
+        if ([string]::IsNullOrWhiteSpace($catalog)) {
+            $catalog = "$name-models.json"
+        }
+        $catalogPath = Join-Path $codexHome $catalog
+        if ([string]::IsNullOrWhiteSpace($baseUrl)) {
+            Write-Output "[警告] 未配置 base_url；用 codex-switcher edit $name 填写中转站地址"
+            $problems++
+        } else {
+            Write-Output "[OK] base_url：$baseUrl"
+        }
+        if ([string]::IsNullOrWhiteSpace($key) -or (Test-PlaceholderKey -Key $key)) {
+            Write-Output "[警告] experimental_bearer_token 为空或仍是占位符；用 codex-switcher edit $name 填写 Key"
+            $problems++
+        } else {
+            Write-Output '[OK] 已配置 API Key'
+        }
+        if (Test-Path -LiteralPath $catalogPath -PathType Leaf) {
+            $models = @()
+            try {
+                $models = @(Get-ProfileModels -Name $name)
+            } catch {
+                $models = @()
+            }
+            if ($models.Count -gt 0) {
+                Write-Output "[OK] 模型目录：$catalogPath（$($models.Count) 个模型）"
+            } else {
+                Write-Output "[警告] 模型目录为空或无法解析：$catalogPath；可执行 sync-models $name"
+                $problems++
+            }
+        } else {
+            Write-Output "[警告] 模型目录不存在：$catalogPath；可执行 sync-models $name"
+            $problems++
+        }
+    }
+    if ($problems -eq 0) {
+        Write-Output '全部检查通过。'
+        return 0
+    }
+    Write-Output "共发现 $problems 个问题。"
+    return 1
 }
 
 function Clear-ProviderEnvironment {
@@ -1032,6 +1116,7 @@ function Show-Usage {
   codex-switcher edit <名称>             用编辑器打开对应 TOML，退出后自动同步模型
   codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
   codex-switcher model <名称> [模型名]   查看/切换 profile 的 model（不带模型名时交互选择）
+  codex-switcher doctor [名称]           诊断 Codex 与 profile 环境（缺省检查全部 profile）
   codex-switcher delete <名称> [--yes]   删除一个 profile（默认需要确认）
   codex-switcher completion <shell>      输出 bash/zsh/fish/powershell 补全脚本
   codex-switcher <名称> [Codex参数...]   启动指定 profile
@@ -1120,6 +1205,11 @@ function Invoke-CodexSwitcher {
                 $newModel = $models[[int]$choice - 1]
                 Set-ProfileModel -Name $name -NewModel $newModel
                 Write-Output "已将 $name 的 model 切换为：$newModel"
+                return
+            }
+            'doctor' {
+                $only = if ($CommandArgs.Count -gt 1) { $CommandArgs[1] } else { '' }
+                $global:SwitcherExitCode = Invoke-Doctor -Only $only
                 return
             }
             '__complete' {

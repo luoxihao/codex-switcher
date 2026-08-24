@@ -95,6 +95,16 @@ printf '1\n' | CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher"
 grep -q '^model = "gpt-5.5"' "$codex_home/demo.config.toml"
 test "$(CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete model demo gpt | grep -c '^gpt-5.6-sol$')" = "1"
 
+# doctor：完整配置通过、缺配置报问题
+printf '%s\n' 'model = "gpt-5.5"' 'base_url = "https://api.example.com/v1"' 'experimental_bearer_token = "sk-0123456789abcdef"' 'model_catalog_json = "demo-models.json"' > "$codex_home/demo.config.toml"
+CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" doctor demo >/dev/null
+CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete doctor demo | grep -q '^demo$'
+printf '%s\n' 'model = "gpt-5.5"' 'experimental_bearer_token = "<你的Key>"' > "$codex_home/demo.config.toml"
+if CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" doctor demo >/dev/null 2>&1; then
+  echo "doctor 应报告问题并返回非零" >&2
+  exit 1
+fi
+
 HOME="$test_home" "$bin_dir/codex-switcher" completion bash | grep -q '_codex_switcher_complete'
 HOME="$test_home" "$bin_dir/codex-switcher" completion zsh | grep -q 'compdef'
 HOME="$test_home" "$bin_dir/codex-switcher" completion fish | grep -q 'complete -c codex-switcher'

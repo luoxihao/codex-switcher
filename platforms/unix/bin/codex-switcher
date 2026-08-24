@@ -313,7 +313,7 @@ valid_name() {
 
 reserved_name() {
   case "$1" in
-    list|create|edit|delete|remove|rm|sync-models|sessions|model|official|default|reset|restore|help|version|completion|__complete)
+    list|create|edit|delete|remove|rm|sync-models|sessions|model|doctor|official|default|reset|restore|help|version|completion|__complete)
       return 0 ;;
     *) return 1 ;;
   esac
@@ -627,7 +627,7 @@ completion_candidates() {
   # $@ 为已输入参数（含正在补全的当前词）；位置 = $# - 1
   if [ "$#" -le 1 ]; then
     # 位置 0：命令名位置（含 profile 名）
-    printf '%s\n' list create edit delete remove rm sync-models sessions model vscode official default reset restore help version completion -h --help -V --version
+    printf '%s\n' list create edit delete remove rm sync-models sessions model doctor vscode official default reset restore help version completion -h --help -V --version
     list_profiles
     return 0
   fi
@@ -644,6 +644,9 @@ completion_candidates() {
       elif [ "$#" -eq 3 ]; then
         list_profile_models "${2:-}" 2>/dev/null || true
       fi
+      ;;
+    doctor)
+      [ "$#" -eq 2 ] && list_profiles
       ;;
     vscode)
       if [ "$#" -eq 2 ]; then
@@ -709,6 +712,7 @@ usage() {
   codex-switcher edit <名称>             用 vim/指定编辑器打开对应 TOML，退出后自动同步模型
   codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
   codex-switcher model <名称> [模型名]   查看/切换 profile 的 model（不带模型名时交互选择）
+  codex-switcher doctor [名称]           诊断 Codex 与 profile 环境（缺省检查全部 profile）
   codex-switcher delete <名称> [--yes]   删除一个 profile（默认需要确认）
   codex-switcher completion <shell>      输出 bash/zsh/fish/powershell 补全脚本
   codex-switcher <名称> [Codex参数...]   启动指定 profile
@@ -779,6 +783,83 @@ case "${1:-}" in
     set_profile_model "$name" "$new_model"
     echo "已将 $name 的 model 切换为：$new_model"
     exit 0
+    ;;
+  doctor)
+    only=${2:-}
+    command -v python3 >/dev/null 2>&1 || die "需要 python3 才能运行 doctor。"
+    problems=0
+    echo "== codex-switcher doctor =="
+    if [ -n "$codex_bin" ]; then
+      echo "[OK] Codex CLI：$codex_bin"
+    else
+      echo "[警告] 未找到 Codex CLI；可设置 CODEX_SWITCHER_CODEX_BIN"
+      problems=$((problems + 1))
+    fi
+    echo "Codex 主目录：$codex_home"
+    if [ -n "$only" ]; then
+      valid_name "$only" || die "无效 profile 名称。"
+      reserved_name "$only" && die "'$only' 是保留命令名，请换一个 profile 名称。"
+      profiles="$only"
+    else
+      profiles=$(list_profiles)
+    fi
+    if [ -z "$profiles" ]; then
+      echo "[警告] 没有任何 profile；先运行 codex-switcher create <名称>"
+      problems=$((problems + 1))
+    fi
+    for name in $profiles; do
+      target="$codex_home/$name.config.toml"
+      echo "---- profile：$name ----"
+      if [ ! -f "$target" ]; then
+        echo "[警告] 配置文件不存在：$target"
+        problems=$((problems + 1))
+        continue
+      fi
+      base_url=$(toml_value "$target" base_url)
+      key=$(toml_value "$target" experimental_bearer_token)
+      catalog=$(toml_value "$target" model_catalog_json)
+      [ -n "$catalog" ] || catalog="$name-models.json"
+      catalog_file="$codex_home/$catalog"
+      if [ -z "$base_url" ]; then
+        echo "[警告] 未配置 base_url；用 codex-switcher edit $name 填写中转站地址"
+        problems=$((problems + 1))
+      else
+        echo "[OK] base_url：$base_url"
+      fi
+      if [ -z "$key" ] || key_is_placeholder "$key"; then
+        echo "[警告] experimental_bearer_token 为空或仍是占位符；用 codex-switcher edit $name 填写 Key"
+        problems=$((problems + 1))
+      else
+        echo "[OK] 已配置 API Key"
+      fi
+      if [ -f "$catalog_file" ]; then
+        count=$(python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        d = json.load(f)
+except Exception:
+    sys.exit(1)
+models = d.get("models", []) if isinstance(d, dict) else d
+print(len([m for m in models if isinstance(m, dict) and m.get("slug")]))
+' "$catalog_file" 2>/dev/null || echo 0)
+        if [ "$count" -gt 0 ] 2>/dev/null; then
+          echo "[OK] 模型目录：$catalog_file（$count 个模型）"
+        else
+          echo "[警告] 模型目录为空或无法解析：$catalog_file；可执行 codex-switcher sync-models $name"
+          problems=$((problems + 1))
+        fi
+      else
+        echo "[警告] 模型目录不存在：$catalog_file；可执行 codex-switcher sync-models $name"
+        problems=$((problems + 1))
+      fi
+    done
+    if [ "$problems" -eq 0 ]; then
+      echo "全部检查通过。"
+      exit 0
+    fi
+    echo "共发现 $problems 个问题。"
+    exit 1
     ;;
   __complete)
     shift

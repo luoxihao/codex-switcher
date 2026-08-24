@@ -469,6 +469,20 @@ Test-Case -Name 'model switches profile default model' {
     }
 }
 
+Test-Case -Name 'doctor reports profile problems' {
+    $ctx = New-TestContext
+    try {
+        Set-Content -LiteralPath (Join-Path $ctx.Home 'demo.config.toml') -Value 'model = "gpt-5.5"' -Encoding UTF8
+        $env = @{ CODEX_SWITCHER_CODEX_HOME = $ctx.Home }
+        $r = Invoke-Switcher -CommandArgs @('doctor') -TestEnv $env
+        Assert-Equal 1 $r.ExitCode 'doctor should exit 1 with problems'
+        Assert-Contains $r.Output 'base_url' 'doctor should report missing base_url'
+        Assert-Contains $r.Output 'Key' 'doctor should report key issue'
+    } finally {
+        Remove-TempDir -Path $ctx.Home
+    }
+}
+
 Test-Case -Name 'create writes profile template' {
     $ctx = New-TestContext
     try {

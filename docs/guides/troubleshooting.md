@@ -2,6 +2,22 @@
 
 > 本文按常见症状列出恢复命令。返回 [README](../../README.md)。
 
+## 一键诊断（`doctor`）
+
+先跑诊断，确认是环境问题还是配置问题：
+
+```sh
+codex-switcher doctor             # 检查 Codex CLI 与全部 profile
+codex-switcher doctor my-api      # 只检查指定 profile
+```
+
+检查项：
+
+- Codex CLI 是否可执行（找不到时提示设置 `CODEX_SWITCHER_CODEX_BIN`）。
+- 每个 profile：`base_url` 是否已配置、`experimental_bearer_token` 是否为空/占位符、模型目录（`model_catalog_json`）是否存在且可解析。
+
+有问题的项会以 `[警告]` 列出，退出码为 `1`；全部正常退出码为 `0`，方便脚本判断。
+
 ## 先回到官方
 
 ```sh
