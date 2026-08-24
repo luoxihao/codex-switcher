@@ -81,6 +81,10 @@ codex-switcher official
 - [VS Code 与会话](docs/guides/vscode.md)
 - [故障排查](docs/guides/troubleshooting.md)
 
+## 参与贡献
+
+- [提交规范](docs/CONTRIBUTING.md)
+
 维护文档：
 
 - [架构](docs/development/architecture.md)

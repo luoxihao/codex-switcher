@@ -1,0 +1,22 @@
+#!/bin/sh
+# 提交规范：英文 Conventional 前缀 + 中文描述
+# 示例：feat: 新增 model 命令；docs: 补充补全指南；fix: 修复安装脚本覆盖问题
+msg=$(cat "$1")
+case "$msg" in
+  '')
+    echo "错误：提交信息为空。" >&2
+    exit 1
+    ;;
+  Merge*)
+    exit 0
+    ;;
+  feat:*|fix:*|docs:*|refactor:*|test:*|chore:*|perf:*|build:*|ci:*|style:*|revert:*|merge:*)
+    exit 0
+    ;;
+  *)
+    echo "错误：提交信息不符合规范（英文前缀 + 中文描述）。" >&2
+    echo "示例：feat: 新增 model 命令" >&2
+    echo "允许类型：feat fix docs refactor test chore perf build ci style revert merge" >&2
+    exit 1
+    ;;
+esac

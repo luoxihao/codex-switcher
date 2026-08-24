@@ -1,0 +1,10 @@
+# 提交规范：英文 Conventional 前缀 + 中文描述
+# 类型：feat(功能) fix(修复) docs(文档) refactor(重构) test(测试)
+#       chore(杂项) perf(性能) build(构建) ci(CI) style(格式)
+#       revert(回退) merge(合并)
+# 示例：
+#   feat: 新增 model 命令
+#   docs: 补充补全指南
+#   fix: 修复安装脚本覆盖已有模型目录的问题
+
+feat: 请输入提交描述
