@@ -1,0 +1,43 @@
+name: commit-check
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+
+jobs:
+  check-commit-messages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 校验提交信息（英文前缀 + 中文描述）
+        shell: bash
+        run: |
+          set -e
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.event.after }}"
+          fi
+          if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "首次推送，跳过范围校验"
+            exit 0
+          fi
+          git log --format='%s' "$BASE..$HEAD" | while IFS= read -r msg; do
+            [ -n "$msg" ] || continue
+            case "$msg" in
+              Merge*) continue ;;
+              feat:*|fix:*|docs:*|refactor:*|test:*|chore:*|perf:*|build:*|ci:*|style:*|revert:*|merge:*)
+                continue
+                ;;
+              *)
+                echo "::error::提交信息不符合规范：$msg"
+                exit 1
+                ;;
+            esac
+          done
+          echo "提交信息校验通过"

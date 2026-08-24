@@ -35,7 +35,13 @@ fix: 修复安装脚本覆盖已有模型目录的问题
 
 ## 钩子与模板
 
-仓库提供 `.githooks/commit-msg` 校验钩子与 `.gitmessage` 模板，启用后提交会自动校验前缀、编辑器打开模板：
+仓库提供 `.githooks/commit-msg` 校验钩子与 `.gitmessage` 模板，clone 后执行一次即可启用（提交自动校验前缀、编辑器打开模板）：
+
+```sh
+sh scripts/install-hooks.sh
+```
+
+或手动配置：
 
 ```sh
 git config core.hooksPath .githooks
@@ -43,6 +49,12 @@ git config commit.template .gitmessage
 ```
 
 `git merge` 的默认提交信息（`Merge branch ...`）不会被钩子拦截；需要自定义时使用 `merge: 描述`。
+
+## CI 校验
+
+仓库自带 `.github/workflows/commit-check.yml`：push 或 PR 时会自动校验范围内所有提交信息的前缀，不符合规范则检查失败（GitHub Actions 默认开启，无需手动配置）。
+
+如需“必须通过检查才能合并”，在 GitHub 仓库 **Settings → Branches** 为 `develop`/`main` 开启分支保护并勾选该检查。
 
 ## 历史说明
 
