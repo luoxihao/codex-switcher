@@ -602,6 +602,7 @@ Test-Case -Name 'install copies files and preserves existing deepseek models' {
             CODEX_SWITCHER_COMPLETIONS_DIR = $completionDir
             CODEX_SWITCHER_PS_PROFILE = $profile
             CODEX_SWITCHER_NO_PATH = '1'
+            CODEX_SWITCHER_MENU_COMPLETE = '1'
         }
         Assert-Equal 0 $r.ExitCode 'install should exit 0'
         Assert-FileExists -Path (Join-Path $bin 'codex-switcher-main.ps1') -Message 'install should copy main ps1'
@@ -610,6 +611,7 @@ Test-Case -Name 'install copies files and preserves existing deepseek models' {
         Assert-FileContains -Path (Join-Path $codexHome 'deepseek-models.json') -Needle 'existing' -Message 'install should not overwrite existing deepseek models'
         Assert-FileExists -Path (Join-Path $completionDir 'codex-switcher-completion.ps1') -Message 'install should copy completion script'
         Assert-FileContains -Path $profile -Needle '# codex-switcher completions' -Message 'install should enable completions in profile'
+        Assert-FileContains -Path $profile -Needle 'Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete' -Message 'install should enable tab menu completion'
 
         $r2 = Invoke-Process -FilePath (Join-Path $bin 'codex-switcher.cmd') -ArgumentList @('--version') -TestEnv @{
             CODEX_SWITCHER_CODEX_HOME = $codexHome
@@ -636,9 +638,11 @@ Test-Case -Name 'uninstall removes switcher files but keeps user data' {
             CODEX_SWITCHER_COMPLETIONS_DIR = $completionDir
             CODEX_SWITCHER_PS_PROFILE = $profile
             CODEX_SWITCHER_NO_PATH = '1'
+            CODEX_SWITCHER_MENU_COMPLETE = '1'
         }
         $null = Invoke-Switcher -CommandArgs @('create', 'demo') -TestEnv @{ CODEX_SWITCHER_CODEX_HOME = $codexHome }
         Assert-FileContains -Path $profile -Needle '# codex-switcher completions' -Message 'install should enable completions in profile'
+        Assert-FileContains -Path $profile -Needle 'Set-PSReadLineKeyHandler -Key Tab -Function MenuComplete' -Message 'install should enable tab menu completion'
 
         $rootUninstall = Join-Path $RepoRoot 'uninstall.ps1'
         $r = Invoke-PowerShellScript -FilePath $rootUninstall -TestEnv @{
@@ -654,6 +658,7 @@ Test-Case -Name 'uninstall removes switcher files but keeps user data' {
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $completionDir 'codex-switcher-completion.ps1'))) 'uninstall should remove completion script'
         $profileContent = Get-Content -LiteralPath $profile -Raw -Encoding UTF8
         Assert-True ($profileContent -notmatch '# codex-switcher completions') 'uninstall should remove profile marker'
+        Assert-True ($profileContent -notmatch '# codex-switcher menu-complete') 'uninstall should remove menu-complete marker'
         Assert-FileExists -Path (Join-Path $codexHome 'demo.config.toml') -Message 'uninstall should keep profile'
         Assert-FileExists -Path (Join-Path $codexHome 'deepseek-models.json') -Message 'uninstall should keep deepseek models'
     } finally {

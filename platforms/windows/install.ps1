@@ -117,6 +117,27 @@ if ($env:CODEX_SWITCHER_NO_COMPLETION -ne '1') {
     }
 }
 
+if ($env:CODEX_SWITCHER_MENU_COMPLETE -eq '1') {
+    $profilePath = if (-not [string]::IsNullOrWhiteSpace($env:CODEX_SWITCHER_PS_PROFILE)) {
+        $env:CODEX_SWITCHER_PS_PROFILE
+    } else {
+        $PROFILE.CurrentUserAllHosts
+    }
+    if (-not (Test-Path -LiteralPath $profilePath -PathType Leaf)) {
+        $profileDir = Split-Path -Parent $profilePath
+        if (-not (Test-Path -LiteralPath $profileDir -PathType Container)) {
+            New-Item -ItemType Directory -Force -Path $profileDir | Out-Null
+        }
+        New-Item -ItemType File -Force -Path $profilePath | Out-Null
+    }
+    $profileContent = Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
+    $marker = '# codex-switcher menu-complete'
+    if ($null -eq $profileContent -or $profileContent -notmatch [regex]::Escape($marker)) {
+        Add-Content -LiteralPath $profilePath -Value ("`n$marker`nSet-PSReadLineKeyHandler -Key Tab -Function MenuComplete`n") -Encoding UTF8
+        Write-Output "已在 PowerShell Profile 启用 Tab 循环补全（MenuComplete）"
+    }
+}
+
 $existingCodex = Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($SkipCodex) {
     Write-Output '已跳过 Codex CLI 安装。'

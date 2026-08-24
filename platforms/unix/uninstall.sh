@@ -31,12 +31,14 @@ done
 # 移除安装脚本写入的 PATH / 补全标记及其后的导出行
 for rc_file in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
   [ -f "$rc_file" ] || continue
-  if grep -Fq '# codex-switcher user bin' "$rc_file" || grep -Fq '# codex-switcher completions' "$rc_file"; then
+  if grep -Fq '# codex-switcher user bin' "$rc_file" || grep -Fq '# codex-switcher completions' "$rc_file" || grep -Fq '# codex-switcher menu-complete' "$rc_file"; then
     tmp="$rc_file.tmp.$$"
     awk '
       /^# codex-switcher user bin$/ { skip=1; next }
       /^# codex-switcher completions$/ { skip=1; next }
+      /^# codex-switcher menu-complete$/ { skip=2; next }
       skip && /^(export PATH=|source )/ { skip=0; next }
+      skip>0 { skip--; next }
       { skip=0; print }
     ' "$rc_file" > "$tmp"
     chmod --reference="$rc_file" "$tmp" 2>/dev/null || chmod 644 "$tmp"

@@ -31,6 +31,32 @@ test -f "$test_home/.local/share/codex-switcher/completions/codex-switcher.fish"
 if [ "${SHELL##*/}" = "bash" ]; then
   grep -Fq '# codex-switcher completions' "$test_home/.bashrc"
 fi
+! grep -Fq '# codex-switcher menu-complete' "$test_home/.bashrc" 2>/dev/null
+! grep -Fq '# codex-switcher menu-complete' "$test_home/.zshrc" 2>/dev/null
+
+# 启用 Tab 循环补全（bash 分支）
+CODEX_SWITCHER_BIN_DIR="$bin_dir" \
+CODEX_SWITCHER_CODEX_HOME="$codex_home" \
+HOME="$test_home" \
+CODEX_SWITCHER_NO_PATH=1 \
+CODEX_SWITCHER_MENU_COMPLETE=1 \
+SHELL=/bin/bash \
+sh "$repo_root/install.sh" >/dev/null
+grep -Fq '# codex-switcher menu-complete' "$test_home/.bashrc"
+grep -Fq 'bind "\t":menu-complete' "$test_home/.bashrc"
+grep -Fq 'menu-complete-backward' "$test_home/.bashrc"
+
+# 启用 Tab 循环补全（zsh 分支）
+CODEX_SWITCHER_BIN_DIR="$bin_dir" \
+CODEX_SWITCHER_CODEX_HOME="$codex_home" \
+HOME="$test_home" \
+CODEX_SWITCHER_NO_PATH=1 \
+CODEX_SWITCHER_MENU_COMPLETE=1 \
+SHELL=/bin/zsh \
+sh "$repo_root/install.sh" >/dev/null
+grep -Fq '# codex-switcher menu-complete' "$test_home/.zshrc"
+grep -Fq 'setopt auto_menu' "$test_home/.zshrc"
+grep -Fq "zstyle ':completion:*' menu select" "$test_home/.zshrc"
 
 test "$(CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete | grep -c '^sessions$')" = "1"
 test "$(CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete sessions | grep -c '^sessions$')" = "1"
@@ -73,4 +99,6 @@ test ! -e "$test_home/.local/share/codex-switcher/completions/codex-switcher.bas
 if [ "${SHELL##*/}" = "bash" ]; then
   ! grep -Fq '# codex-switcher completions' "$test_home/.bashrc"
 fi
+! grep -Fq '# codex-switcher menu-complete' "$test_home/.bashrc" 2>/dev/null
+! grep -Fq '# codex-switcher menu-complete' "$test_home/.zshrc" 2>/dev/null
 printf '%s\n' 'PASS Unix install, completions and uninstall'

@@ -81,3 +81,5 @@ codex-switcher completion powershell
 ```
 
 禁用：`$env:CODEX_SWITCHER_NO_COMPLETION=1` 后重新安装。详细说明见 [补全指南](../guides/completion.md)。
+
+可选：`$env:CODEX_SWITCHER_MENU_COMPLETE='1'` 后重新安装，启用 Tab 循环候选（PSReadLine MenuComplete），详见 [补全指南](../guides/completion.md)。

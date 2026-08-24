@@ -64,3 +64,5 @@ codex-switcher completion bash
 ```
 
 禁用：`CODEX_SWITCHER_NO_COMPLETION=1 sh install.sh`。详细说明见 [补全指南](../guides/completion.md)。
+
+可选：`CODEX_SWITCHER_MENU_COMPLETE=1 sh install.sh` 启用 Tab 循环候选（bash/zsh），详见 [补全指南](../guides/completion.md)。

@@ -62,9 +62,9 @@ $profilePath = if (-not [string]::IsNullOrWhiteSpace($env:CODEX_SWITCHER_PS_PROF
 }
 if (Test-Path -LiteralPath $profilePath -PathType Leaf) {
     $profileContent = Get-Content -LiteralPath $profilePath -Raw -Encoding UTF8
-    if ($profileContent -match '# codex-switcher completions') {
+    if ($profileContent -match 'codex-switcher (completions|menu-complete)') {
         $tmpPath = "$profilePath.tmp.$PID"
-        $newContent = $profileContent -replace '(?m)^# codex-switcher completions\r?\n\. "[^"]*"\r?\n', ''
+        $newContent = $profileContent -replace '(?m)^# codex-switcher (completions|menu-complete)\r?\n[^\r\n]*\r?\n', ''
         [System.IO.File]::WriteAllText($tmpPath, $newContent, (New-Object System.Text.UTF8Encoding($false)))
         Move-Item -LiteralPath $tmpPath -Destination $profilePath -Force
         $removed = 1

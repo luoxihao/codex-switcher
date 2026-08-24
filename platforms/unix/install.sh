@@ -104,6 +104,32 @@ if [ "${CODEX_SWITCHER_NO_COMPLETION:-0}" != "1" ]; then
   fi
 fi
 
+if [ "${CODEX_SWITCHER_MENU_COMPLETE:-0}" = "1" ]; then
+  marker='# codex-switcher menu-complete'
+  case "$shell_name" in
+    zsh)
+      if ! grep -Fq "$marker" "$rc_file" 2>/dev/null; then
+        {
+          printf '\n%s\n' "$marker"
+          printf 'setopt auto_menu\n'
+          printf "zstyle ':completion:*' menu select\n"
+        } >> "$rc_file"
+        echo "已在 $rc_file 启用 zsh Tab 循环补全（menu select）"
+      fi
+      ;;
+    bash)
+      if ! grep -Fq "$marker" "$rc_file" 2>/dev/null; then
+        {
+          printf '\n%s\n' "$marker"
+          printf 'bind "\\t":menu-complete\n'
+          printf 'bind "\\e[Z":menu-complete-backward\n'
+        } >> "$rc_file"
+        echo "已在 $rc_file 启用 bash Tab 循环补全（menu-complete）"
+      fi
+      ;;
+  esac
+fi
+
 echo "codex-switcher 安装完成：$bin_dir/codex-switcher"
 echo "新开一个 bash/zsh 终端，或执行：export PATH=\"$HOME/.local/bin:\$PATH\""
 echo "查看帮助：codex-switcher --help"
