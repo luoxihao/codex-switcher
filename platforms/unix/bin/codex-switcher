@@ -461,57 +461,58 @@ except BrokenPipeError:
 PY
 }
 
-remove_session() {
-  sid=${1:-}
-  [ -n "$sid" ] || die "请指定要删除的会话 ID，例如：codex-switcher sessions remove <会话ID>"
-  command -v python3 >/dev/null 2>&1 || die "需要 python3 才能操作会话。"
-  result=$(CODEX_SWITCHER_HOME="$codex_home" CODEX_SWITCHER_SESSION_ID="$sid" python3 <<'PY'
-import glob, json, os, re, sys
+find_session_file() {
+  sid=$1
+  [ -n "$sid" ] || return 1
+  CODEX_SWITCHER_HOME="$codex_home" CODEX_SWITCHER_SESSION_ID="$sid" python3 <<'PY'
+import glob, json, os, sys
 
 codex_home = os.environ["CODEX_SWITCHER_HOME"]
 sid = os.environ["CODEX_SWITCHER_SESSION_ID"]
 sessions_dir = os.path.join(codex_home, "sessions")
-target = None
-topic = ""
-
-if os.path.isdir(sessions_dir):
-    for p in glob.glob(os.path.join(sessions_dir, "**", "*.jsonl"), recursive=True):
-        base = os.path.basename(p)
-        match = "-" + sid + ".jsonl" in base
-        if not match:
-            try:
-                with open(p, encoding="utf-8", errors="replace") as f:
-                    for line in f:
-                        try:
-                            d = json.loads(line)
-                        except Exception:
-                            continue
-                        if isinstance(d, dict) and d.get("type") == "session_meta":
-                            pl = d.get("payload") or {}
-                            if pl.get("session_id") == sid or pl.get("id") == sid:
-                                match = True
-                            break
-            except OSError:
-                continue
-        if match:
-            target = p
-            break
-
-if not target:
-    print("NOT_FOUND")
+if not os.path.isdir(sessions_dir):
     raise SystemExit(0)
+for p in glob.glob(os.path.join(sessions_dir, "**", "*.jsonl"), recursive=True):
+    match = "-" + sid + ".jsonl" in os.path.basename(p)
+    if not match:
+        try:
+            with open(p, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    try:
+                        d = json.loads(line)
+                    except Exception:
+                        continue
+                    if isinstance(d, dict) and d.get("type") == "session_meta":
+                        pl = d.get("payload") or {}
+                        if pl.get("session_id") == sid or pl.get("id") == sid:
+                            match = True
+                        break
+        except OSError:
+            continue
+    if match:
+        sys.stdout.write(p)
+        raise SystemExit(0)
+PY
+}
 
-name_file = target + ".name"
+session_topic() {
+  path=$1
+  [ -f "$path" ] || return 1
+  CODEX_SWITCHER_SESSION_PATH="$path" python3 <<'PY'
+import json, os, sys
+
+path = os.environ["CODEX_SWITCHER_SESSION_PATH"]
+topic = ""
+name_file = path + ".name"
 if os.path.isfile(name_file):
     try:
         with open(name_file, encoding="utf-8", errors="replace") as nf:
             topic = nf.readline().strip()
     except OSError:
         pass
-
 if not topic:
     try:
-        with open(target, encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             for line in f:
                 try:
                     d = json.loads(line)
@@ -524,35 +525,48 @@ if not topic:
                         break
     except OSError:
         pass
-
 topic = " ".join(topic.split())
 if len(topic) > 60:
     topic = topic[:57] + "..."
-sys.stdout.write("FOUND\n%s\n%s\n" % (target, topic))
+sys.stdout.write(topic)
 PY
-)
-  case "$result" in
-    NOT_FOUND)
-      die "未找到会话：$sid"
-      ;;
-    FOUND*)
-      target=$(printf '%s\n' "$result" | sed -n '2p')
-      topic=$(printf '%s\n' "$result" | sed -n '3p')
-      [ -n "$target" ] || die "无法解析会话信息。"
-      [ -n "$topic" ] || topic="（无主题）"
-      printf "会话 %s\n主题：%s\n确定删除该会话文件？[y/N] " "$sid" "$topic"
-      read -r answer
-      case "$answer" in
-        y|Y|yes|YES) ;;
-        *) echo "已取消。"; exit 0 ;;
-      esac
-      rm -f "$target" "$target.name"
-      echo "已删除会话：$sid"
-      ;;
-    *)
-      die "无法解析会话信息。"
-      ;;
+}
+
+remove_session() {
+  sid=${1:-}
+  [ -n "$sid" ] || die "请指定要删除的会话 ID，例如：codex-switcher sessions remove <会话ID>"
+  command -v python3 >/dev/null 2>&1 || die "需要 python3 才能操作会话。"
+  target=$(find_session_file "$sid")
+  [ -n "$target" ] || die "未找到会话：$sid"
+  topic=$(session_topic "$target")
+  [ -n "$topic" ] || topic="（无主题）"
+  printf "会话 %s\n主题：%s\n确定删除该会话文件？[y/N] " "$sid" "$topic"
+  read -r answer
+  case "$answer" in
+    y|Y|yes|YES) ;;
+    *) echo "已取消。"; exit 0 ;;
   esac
+  rm -f "$target" "$target.name"
+  echo "已删除会话：$sid"
+}
+
+rename_session() {
+  sid=${1:-}
+  topic=${2:-}
+  [ -n "$sid" ] || die "请指定会话 ID，例如：codex-switcher sessions rename <会话ID> 新主题"
+  command -v python3 >/dev/null 2>&1 || die "需要 python3 才能操作会话。"
+  target=$(find_session_file "$sid")
+  [ -n "$target" ] || die "未找到会话：$sid"
+  if [ -n "$topic" ]; then
+    topic=$(printf '%s' "$topic" | tr '\t\r\n' '   ' | sed 's/  */ /g' | sed 's/^ //;s/ $//')
+    [ -n "$topic" ] || die "主题不能为空。"
+    printf '%s\n' "$topic" > "$target.name"
+    chmod 600 "$target.name"
+    echo "已将会话 $sid 重命名为：$topic"
+  else
+    rm -f "$target.name"
+    echo "已清除会话 $sid 的自定义名称。"
+  fi
 }
 
 list_session_completions() {
@@ -648,8 +662,8 @@ completion_candidates() {
       ;;
     sessions)
       if [ "$#" -eq 2 ]; then
-        printf '%s\n' remove rm
-      elif [ "$#" -eq 3 ] && { [ "$2" = "remove" ] || [ "$2" = "rm" ]; }; then
+        printf '%s\n' remove rm rename
+      elif [ "$#" -eq 3 ] && { [ "$2" = "remove" ] || [ "$2" = "rm" ] || [ "$2" = "rename" ]; }; then
         list_session_completions
       fi
       ;;
@@ -690,6 +704,7 @@ usage() {
   codex-switcher list                    列出已有 profile
   codex-switcher sessions                列出全部会话（跨目录，含主题与所属目录）
   codex-switcher sessions remove <ID>   删除指定会话（rm 亦可，删除前显示主题确认）
+  codex-switcher sessions rename <ID> <主题>  重命名会话（主题留空则清除自定义名）
   codex-switcher create <名称>           创建新的 profile（干净模板，不会复制主配置）
   codex-switcher edit <名称>             用 vim/指定编辑器打开对应 TOML，退出后自动同步模型
   codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
@@ -783,6 +798,10 @@ case "${1:-}" in
     case "${2:-}" in
       remove|rm)
         remove_session "${3:-}"
+        exit 0
+        ;;
+      rename)
+        rename_session "${3:-}" "${4:-}"
         exit 0
         ;;
       *)

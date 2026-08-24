@@ -75,6 +75,15 @@ CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete ses
 CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete sessions rm 019 | grep -q '补全测试主题'
 CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete edit demo | grep -q '^demo$'
 CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete delete demo | grep -q '^--yes$'
+test "$(CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete sessions rename | grep -c '^rename$')" = "1"
+CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete sessions rename 019 | grep -q "$test_sid"
+
+# sessions rename：设置与清除自定义名称
+CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" sessions rename "$test_sid" 新的会话主题
+grep -q '^新的会话主题$' "$codex_home/sessions/2026/08/24/rollout-2026-08-24T02-00-00-$test_sid.jsonl.name"
+CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" sessions | grep -q '新的会话主题'
+CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" sessions rename "$test_sid"
+test ! -e "$codex_home/sessions/2026/08/24/rollout-2026-08-24T02-00-00-$test_sid.jsonl.name"
 
 # model 命令：直接切换与交互切换
 printf '%s\n' '{"models":[{"slug":"gpt-5.5"},{"slug":"gpt-5.6-sol"}]}' > "$codex_home/demo-models.json"

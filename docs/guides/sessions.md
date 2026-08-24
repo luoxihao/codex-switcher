@@ -48,3 +48,20 @@ codex-switcher sessions rm <会话ID>     # rm 是 remove 的同义命令
 - 会话 ID 可以从 `codex-switcher sessions` 输出中复制。
 - 删除会话文件时会同时移除对应的 `*.jsonl.name` 自定义名旁路文件。
 - 找不到指定 ID 会直接报错，不会删除任何文件。
+
+## 重命名会话
+
+给会话设置自定义主题（写入 `*.jsonl.name` 旁路文件），`sessions` 列表、补全和 `codex resume` 都会优先显示自定义主题：
+
+```sh
+codex-switcher sessions rename <会话ID> 新的主题
+```
+
+- 主题会折叠为单行（换行/制表符转空格）。
+- 不带主题执行会**清除**自定义名称，恢复首条用户消息作为主题：
+
+  ```sh
+  codex-switcher sessions rename <会话ID>
+  ```
+
+- 找不到指定 ID 会直接报错，不会修改任何文件。

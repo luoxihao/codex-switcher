@@ -537,6 +537,41 @@ function Get-SessionTopic {
     return ''
 }
 
+function Get-SessionFile {
+    param([string]$SessionId)
+
+    if ([string]::IsNullOrWhiteSpace($SessionId)) {
+        return $null
+    }
+    $codexHome = Get-CodexHome
+    $sessionsDir = Join-Path $codexHome 'sessions'
+    if (-not (Test-Path -LiteralPath $sessionsDir -PathType Container)) {
+        return $null
+    }
+    foreach ($p in Get-ChildItem -LiteralPath $sessionsDir -Recurse -Filter '*.jsonl' -File -ErrorAction SilentlyContinue) {
+        if ($p.Name -like "*-$SessionId.jsonl") {
+            return $p.FullName
+        }
+        foreach ($line in [System.IO.File]::ReadLines($p.FullName)) {
+            if ([string]::IsNullOrWhiteSpace($line)) {
+                continue
+            }
+            try {
+                $obj = $line | ConvertFrom-Json
+            } catch {
+                continue
+            }
+            if ($null -ne $obj -and $obj.type -eq 'session_meta' -and $null -ne $obj.payload) {
+                if ($obj.payload.session_id -eq $SessionId -or $obj.payload.id -eq $SessionId) {
+                    return $p.FullName
+                }
+                break
+            }
+        }
+    }
+    return $null
+}
+
 function Format-LocalSessionTime {
     param([string]$Ts)
 
@@ -673,38 +708,7 @@ function Remove-Session {
     if ([string]::IsNullOrWhiteSpace($SessionId)) {
         throw '请指定要删除的会话 ID，例如：codex-switcher sessions remove <会话ID>'
     }
-    $codexHome = Get-CodexHome
-    $sessionsDir = Join-Path $codexHome 'sessions'
-    $target = $null
-    if (Test-Path -LiteralPath $sessionsDir -PathType Container) {
-        foreach ($p in Get-ChildItem -LiteralPath $sessionsDir -Recurse -Filter '*.jsonl' -File -ErrorAction SilentlyContinue) {
-            if ($p.Name -like "*-$SessionId.jsonl") {
-                $target = $p.FullName
-                break
-            }
-            $metaMatch = $false
-            foreach ($line in [System.IO.File]::ReadLines($p.FullName)) {
-                if ([string]::IsNullOrWhiteSpace($line)) {
-                    continue
-                }
-                try {
-                    $obj = $line | ConvertFrom-Json
-                } catch {
-                    continue
-                }
-                if ($null -ne $obj -and $obj.type -eq 'session_meta' -and $null -ne $obj.payload) {
-                    if ($obj.payload.session_id -eq $SessionId -or $obj.payload.id -eq $SessionId) {
-                        $metaMatch = $true
-                    }
-                    break
-                }
-            }
-            if ($metaMatch) {
-                $target = $p.FullName
-                break
-            }
-        }
-    }
+    $target = Get-SessionFile -SessionId $SessionId
     if ($null -eq $target) {
         throw "未找到会话：$SessionId"
     }
@@ -725,6 +729,34 @@ function Remove-Session {
         Remove-Item -LiteralPath "$target.name" -Force
     }
     Write-Output "已删除会话：$SessionId"
+}
+
+function Rename-Session {
+    param(
+        [string]$SessionId,
+        [string]$Topic
+    )
+
+    if ([string]::IsNullOrWhiteSpace($SessionId)) {
+        throw '请指定会话 ID，例如：codex-switcher sessions rename <会话ID> 新主题'
+    }
+    $target = Get-SessionFile -SessionId $SessionId
+    if ($null -eq $target) {
+        throw "未找到会话：$SessionId"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Topic)) {
+        $clean = ($Topic -replace '\s+', ' ').Trim()
+        if ([string]::IsNullOrWhiteSpace($clean)) {
+            throw '主题不能为空。'
+        }
+        [System.IO.File]::WriteAllText("$target.name", $clean + "`r`n", (New-Object System.Text.UTF8Encoding($false)))
+        Write-Output "已将会话 $SessionId 重命名为：$clean"
+    } else {
+        if (Test-Path -LiteralPath "$target.name" -PathType Leaf) {
+            Remove-Item -LiteralPath "$target.name" -Force
+        }
+        Write-Output "已清除会话 $SessionId 的自定义名称。"
+    }
 }
 
 function Get-SessionCompletions {
@@ -800,8 +832,8 @@ function Get-CompletionCandidates {
         'rm' { Get-CompletionDeleteCandidates -Words $Words; return }
         'sessions' {
             if ($Words.Count -eq 2) {
-                Write-Output @('remove', 'rm')
-            } elseif ($Words.Count -eq 3 -and ($Words[1] -ieq 'remove' -or $Words[1] -ieq 'rm')) {
+                Write-Output @('remove', 'rm', 'rename')
+            } elseif ($Words.Count -eq 3 -and ($Words[1] -ieq 'remove' -or $Words[1] -ieq 'rm' -or $Words[1] -ieq 'rename')) {
                 Get-SessionCompletions
             }
             return
@@ -995,6 +1027,7 @@ function Show-Usage {
   codex-switcher list                    列出已有 profile
   codex-switcher sessions                列出全部会话（跨目录，含主题与所属目录）
   codex-switcher sessions remove <ID>   删除指定会话（rm 亦可，删除前显示主题确认）
+  codex-switcher sessions rename <ID> <主题>  重命名会话（主题留空则清除自定义名）
   codex-switcher create <名称>           创建新的 profile（干净模板，不会复制主配置）
   codex-switcher edit <名称>             用编辑器打开对应 TOML，退出后自动同步模型
   codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
@@ -1115,7 +1148,15 @@ function Invoke-CodexSwitcher {
                         Remove-Session -SessionId $CommandArgs[2]
                         return
                     }
-                    throw 'sessions 命令不接受额外参数。用法：codex-switcher sessions [remove|rm <会话ID>]'
+                    if ($sub -eq 'rename') {
+                        if ($CommandArgs.Count -lt 3) {
+                            throw '请指定会话 ID，例如：codex-switcher sessions rename <会话ID> 新主题'
+                        }
+                        $topic = if ($CommandArgs.Count -gt 3) { $CommandArgs[3] } else { '' }
+                        Rename-Session -SessionId $CommandArgs[2] -Topic $topic
+                        return
+                    }
+                    throw 'sessions 命令不接受额外参数。用法：codex-switcher sessions [remove|rm|rename <会话ID>]'
                 }
                 Invoke-Sessions
                 return

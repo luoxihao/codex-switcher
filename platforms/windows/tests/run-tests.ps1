@@ -415,9 +415,39 @@ Test-Case -Name '__complete provides dynamic candidates' {
         $r5 = Invoke-Switcher -CommandArgs @('completion', 'powershell') -TestEnv $env
         Assert-Contains $r5.Output 'Register-ArgumentCompleter' 'completion powershell should print completer'
 
+        $r5b = Invoke-Switcher -CommandArgs @('__complete', 'sessions', 'rename') -TestEnv $env
+        Assert-Contains $r5b.Output 'rename' 'sessions should complete rename'
+        $r5c = Invoke-Switcher -CommandArgs @('__complete', 'sessions', 'rename', '019') -TestEnv $env
+        Assert-Contains $r5c.Output $sid 'sessions rename should complete session id'
+
         Set-Content -LiteralPath (Join-Path $ctx.Home 'demo-models.json') -Value '{"models":[{"slug":"gpt-5.5"},{"slug":"gpt-5.6-sol"}]}' -Encoding UTF8
         $r6 = Invoke-Switcher -CommandArgs @('__complete', 'model', 'demo', 'gpt') -TestEnv $env
         Assert-Contains $r6.Output 'gpt-5.6-sol' 'model should complete catalog models'
+    } finally {
+        Remove-TempDir -Path $ctx.Home
+    }
+}
+
+Test-Case -Name 'sessions rename writes and clears name sidecar' {
+    $ctx = New-TestContext
+    try {
+        $sid = '019fabc1-2222-3333-4444-555566667777'
+        $day = Join-Path $ctx.Home 'sessions\2026\08\24'
+        New-Item -ItemType Directory -Force -Path $day | Out-Null
+        $rollout = Join-Path $day "rollout-2026-08-24T10-00-00-$sid.jsonl"
+        Set-Content -LiteralPath $rollout -Value @(
+            '{"timestamp":"2026-08-24T02:00:00.000Z","type":"session_meta","payload":{"session_id":"' + $sid + '","id":"' + $sid + '","cwd":"C:\work","model_provider":"custom","timestamp":"2026-08-24T02:00:00.000Z"}}'
+        ) -Encoding UTF8
+        $env = @{ CODEX_SWITCHER_CODEX_HOME = $ctx.Home }
+
+        $r = Invoke-Switcher -CommandArgs @('sessions', 'rename', $sid, '新的主题') -TestEnv $env
+        Assert-Equal 0 $r.ExitCode 'rename should exit 0'
+        Assert-Contains $r.Output '新的主题' 'rename should report new topic'
+        Assert-FileExists -Path "$rollout.name" -Message 'rename should create name sidecar'
+        Assert-FileContains -Path "$rollout.name" -Needle '新的主题' -Message 'name sidecar should contain topic'
+
+        $null = Invoke-Switcher -CommandArgs @('sessions', 'rename', $sid) -TestEnv $env
+        Assert-True (-not (Test-Path -LiteralPath "$rollout.name")) 'rename without topic should clear sidecar'
     } finally {
         Remove-TempDir -Path $ctx.Home
     }
