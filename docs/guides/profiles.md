@@ -16,6 +16,30 @@
 
 不带参数运行 `codex-switcher` 会进入 Profile 交互选择。`default`、`reset`、`restore` 是 `official` 的别名。
 
+## 机器可读输出（`list --json`）
+
+脚本或工具需要结构化输出时用 `--json`（不会输出真实 Key，只给 `key_ok` 布尔值）：
+
+```sh
+codex-switcher list --json
+```
+
+输出示例：
+
+```json
+[
+  {
+    "name": "codex-5288",
+    "model": "gpt-5.6-sol",
+    "base_url": "https://api.the5288.com/v1",
+    "catalog": "codex-5288-models.json",
+    "key_ok": true
+  }
+]
+```
+
+`key_ok` 表示该 profile 的 `experimental_bearer_token` 是否已填写且不是占位符；`--json` 永远不输出 Key 本身。
+
 ## 数据位置
 
 - Profile：`<CODEX_SWITCHER_CODEX_HOME>/<名称>.config.toml`
@@ -58,7 +82,7 @@ codex-switcher delete my-api --yes
 
 ## 保留名称
 
-`official default reset restore list create edit delete remove rm sync-models help version` 不能作为 Profile 名。
+`official default reset restore list create edit delete remove rm sync-models sessions model doctor completion __complete help version` 不能作为 Profile 名。
 
 ## 环境变量
 

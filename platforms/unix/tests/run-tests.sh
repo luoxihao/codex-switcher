@@ -105,6 +105,16 @@ if CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" doctor demo
   exit 1
 fi
 
+# list --json：机器可读输出
+CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" list --json > "$test_root/list.json"
+python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert isinstance(d, list) and any(p["name"] == "demo" for p in d)
+assert all("key_ok" in p and "experimental_bearer_token" not in p for p in d)
+' "$test_root/list.json"
+test "$(CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete list --json | grep -c '^--json$')" = "1"
+
 HOME="$test_home" "$bin_dir/codex-switcher" completion bash | grep -q '_codex_switcher_complete'
 HOME="$test_home" "$bin_dir/codex-switcher" completion zsh | grep -q 'compdef'
 HOME="$test_home" "$bin_dir/codex-switcher" completion fish | grep -q 'complete -c codex-switcher'

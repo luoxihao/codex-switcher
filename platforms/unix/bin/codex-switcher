@@ -329,6 +329,46 @@ list_profiles() {
   } | sort -u
 }
 
+list_profiles_json() {
+  CODEX_SWITCHER_HOME="$codex_home" python3 <<'PY'
+import json, os, re, sys
+
+codex_home = os.environ["CODEX_SWITCHER_HOME"]
+try:
+    names = sorted(n[:-12] for n in os.listdir(codex_home) if n.endswith(".config.toml"))
+except OSError:
+    names = []
+out = []
+for name in names:
+    path = os.path.join(codex_home, name + ".config.toml")
+    model = base_url = catalog = key = ""
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r'^\s*([A-Za-z0-9_]+)\s*=\s*"([^"]*)"', line)
+                if not m:
+                    continue
+                k, v = m.group(1), m.group(2)
+                if k == "model" and not model:
+                    model = v
+                elif k == "base_url" and not base_url:
+                    base_url = v
+                elif k == "model_catalog_json" and not catalog:
+                    catalog = v
+                elif k == "experimental_bearer_token" and not key:
+                    key = v
+    except OSError:
+        pass
+    key_ok = bool(key) and not (
+        key.startswith("PASTE_") or key.startswith("REPLACE_") or key.startswith("YOUR_")
+        or key.startswith("<") or len(key) < 10
+    )
+    out.append({"name": name, "model": model, "base_url": base_url, "catalog": catalog, "key_ok": key_ok})
+json.dump(out, sys.stdout, ensure_ascii=False, indent=2)
+print()
+PY
+}
+
 list_profile_models() {
   name=$1
   target="$codex_home/$name.config.toml"
@@ -635,6 +675,9 @@ completion_candidates() {
     create|official|default|reset|restore|help|version|__complete)
       return 0
       ;;
+    list)
+      [ "$#" -eq 2 ] && printf '%s\n' --json
+      ;;
     edit|sync-models)
       [ "$#" -eq 2 ] && list_profiles
       ;;
@@ -704,7 +747,7 @@ usage() {
   codex-switcher                         交互选择 profile 并启动 Codex
   codex-switcher official                使用默认/官方配置启动 Codex
   codex-switcher vscode <名称>           带指定供应商环境启动 VS Code Codex
-  codex-switcher list                    列出已有 profile
+  codex-switcher list [--json]           列出已有 profile（--json 输出机器可读格式）
   codex-switcher sessions                列出全部会话（跨目录，含主题与所属目录）
   codex-switcher sessions remove <ID>   删除指定会话（rm 亦可，删除前显示主题确认）
   codex-switcher sessions rename <ID> <主题>  重命名会话（主题留空则清除自定义名）
@@ -742,6 +785,11 @@ case "${1:-}" in
     exit 0
     ;;
   list)
+    if [ "${2:-}" = "--json" ]; then
+      list_profiles_json
+      exit 0
+    fi
+    [ "$#" -gt 1 ] && die "list 命令只支持 --json 参数。"
     list_profiles
     exit 0
     ;;

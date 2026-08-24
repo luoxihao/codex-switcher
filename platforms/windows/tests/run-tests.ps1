@@ -483,6 +483,21 @@ Test-Case -Name 'doctor reports profile problems' {
     }
 }
 
+Test-Case -Name 'list --json outputs machine readable profiles' {
+    $ctx = New-TestContext
+    try {
+        Set-Content -LiteralPath (Join-Path $ctx.Home 'demo.config.toml') -Value 'model = "gpt-5.5"' -Encoding UTF8
+        $env = @{ CODEX_SWITCHER_CODEX_HOME = $ctx.Home }
+        $r = Invoke-Switcher -CommandArgs @('list', '--json') -TestEnv $env
+        Assert-Equal 0 $r.ExitCode 'list --json should exit 0'
+        Assert-Contains $r.Output 'demo' 'list --json should include profile name'
+        Assert-Contains $r.Output 'key_ok' 'list --json should include key_ok'
+        Assert-True ($r.Output -notmatch 'experimental_bearer_token') 'list --json should not leak keys'
+    } finally {
+        Remove-TempDir -Path $ctx.Home
+    }
+}
+
 Test-Case -Name 'create writes profile template' {
     $ctx = New-TestContext
     try {

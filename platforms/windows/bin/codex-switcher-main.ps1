@@ -170,6 +170,27 @@ function Get-ProfileList {
     )
 }
 
+function Get-ProfileListJson {
+    $codexHome = Get-CodexHome
+    $rows = @()
+    foreach ($name in (Get-ProfileList -CodexHome $codexHome)) {
+        $profilePath = Join-Path $codexHome "$name.config.toml"
+        $model = Get-TomlValue -Path $profilePath -Key 'model'
+        $baseUrl = Get-TomlValue -Path $profilePath -Key 'base_url'
+        $catalog = Get-TomlValue -Path $profilePath -Key 'model_catalog_json'
+        $key = Get-TomlValue -Path $profilePath -Key 'experimental_bearer_token'
+        $keyOk = -not [string]::IsNullOrWhiteSpace($key) -and -not (Test-PlaceholderKey -Key $key)
+        $rows += [pscustomobject]@{
+            name = $name
+            model = $(if ($null -eq $model) { '' } else { $model })
+            base_url = $(if ($null -eq $baseUrl) { '' } else { $baseUrl })
+            catalog = $(if ($null -eq $catalog) { '' } else { $catalog })
+            key_ok = $keyOk
+        }
+    }
+    $rows | ConvertTo-Json -Depth 3
+}
+
 function Get-ProfileModels {
     param([string]$Name)
 
@@ -797,7 +818,7 @@ function Get-CompletionCandidates {
         'default' { return }
         'reset' { return }
         'restore' { return }
-        'list' { return }
+        'list' { if ($Words.Count -eq 2) { Write-Output '--json' }; return }
         'help' { return }
         'version' { return }
         '__complete' { return }
@@ -1108,7 +1129,7 @@ function Show-Usage {
   codex-switcher                         交互选择 profile 并启动 Codex
   codex-switcher official                使用默认/官方配置启动 Codex
   codex-switcher vscode <名称>           带指定供应商环境启动 VS Code Codex
-  codex-switcher list                    列出已有 profile
+  codex-switcher list [--json]           列出已有 profile（--json 输出机器可读格式）
   codex-switcher sessions                列出全部会话（跨目录，含主题与所属目录）
   codex-switcher sessions remove <ID>   删除指定会话（rm 亦可，删除前显示主题确认）
   codex-switcher sessions rename <ID> <主题>  重命名会话（主题留空则清除自定义名）
@@ -1152,8 +1173,14 @@ function Invoke-CodexSwitcher {
             '--version' { Write-Output 'codex-switcher 3.3.0-windows'; return }
             'version' { Write-Output 'codex-switcher 3.3.0-windows'; return }
             'list' {
-                $codexHome = Get-CodexHome
-                Get-ProfileList -CodexHome $codexHome
+                if ($CommandArgs.Count -gt 1 -and $CommandArgs[1] -eq '--json') {
+                    Get-ProfileListJson
+                    return
+                }
+                if ($CommandArgs.Count -gt 1) {
+                    throw 'list 命令只支持 --json 参数。'
+                }
+                Get-ProfileList -CodexHome (Get-CodexHome)
                 return
             }
             'model' {
