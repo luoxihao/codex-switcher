@@ -51,6 +51,7 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
 ```sh
 codex-switcher list
 codex-switcher sessions
+codex-switcher sessions rm <会话ID>
 codex-switcher create my-api
 codex-switcher edit my-api
 codex-switcher sync-models my-api

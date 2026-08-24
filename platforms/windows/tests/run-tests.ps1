@@ -356,7 +356,7 @@ Test-Case -Name 'version prints windows version' {
     }
 }
 
-Test-Case -Name 'sessions lists topics' {
+Test-Case -Name 'sessions lists topics and rm reports missing id' {
     $ctx = New-TestContext
     try {
         $sid = '019fabc1-2222-3333-4444-555566667777'
@@ -374,6 +374,9 @@ Test-Case -Name 'sessions lists topics' {
         Assert-Contains $r.Output 'Windows 测试主题' 'sessions should show topic'
         Assert-Contains $r.Output $sid 'sessions should show session id'
 
+        $r2 = Invoke-Switcher -CommandArgs @('sessions', 'rm', 'missing-id') -TestEnv $env
+        Assert-Equal 1 $r2.ExitCode 'rm missing id should exit 1'
+        Assert-Contains $r2.Output '未找到会话' 'rm should report missing session'
     } finally {
         Remove-TempDir -Path $ctx.Home
     }

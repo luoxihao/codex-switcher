@@ -41,6 +41,7 @@ codex-switcher official
 
 ```sh
 codex-switcher sessions
+codex-switcher sessions rm <会话ID>
 ```
 
 详细说明见 [会话管理指南](../guides/sessions.md)。
