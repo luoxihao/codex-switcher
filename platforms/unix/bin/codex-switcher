@@ -313,7 +313,7 @@ valid_name() {
 
 reserved_name() {
   case "$1" in
-    list|create|edit|delete|remove|rm|sync-models|sessions|official|default|reset|restore|help|version|completion|__complete)
+    list|create|edit|delete|remove|rm|sync-models|sessions|model|official|default|reset|restore|help|version|completion|__complete)
       return 0 ;;
     *) return 1 ;;
   esac
@@ -327,6 +327,52 @@ list_profiles() {
       printf '%s\n' "${base%.config.toml}"
     done
   } | sort -u
+}
+
+list_profile_models() {
+  name=$1
+  target="$codex_home/$name.config.toml"
+  catalog=$(toml_value "$target" model_catalog_json)
+  [ -n "$catalog" ] || catalog="$name-models.json"
+  catalog_file="$codex_home/$catalog"
+  [ -f "$catalog_file" ] || die "模型目录不存在：$catalog_file；请先执行 codex-switcher sync-models $name"
+  python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        d = json.load(f)
+except Exception:
+    sys.exit(2)
+models = d.get("models", []) if isinstance(d, dict) else d
+for m in models:
+    if isinstance(m, dict) and m.get("slug"):
+        print(m["slug"])
+' "$catalog_file" 2>/dev/null || die "无法解析模型目录：$catalog_file"
+}
+
+set_profile_model() {
+  name=$1
+  new_model=$2
+  target="$codex_home/$name.config.toml"
+  python3 - "$target" "$new_model" <<'PY'
+import sys
+
+path, new_model = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as f:
+    lines = f.readlines()
+out = []
+replaced = False
+for line in lines:
+    if line.startswith("model = "):
+        out.append('model = "%s"\n' % new_model)
+        replaced = True
+    else:
+        out.append(line)
+if not replaced:
+    out.insert(0, 'model = "%s"\n' % new_model)
+with open(path, "w", encoding="utf-8") as f:
+    f.writelines(out)
+PY
 }
 
 list_sessions() {
@@ -567,16 +613,23 @@ completion_candidates() {
   # $@ 为已输入参数（含正在补全的当前词）；位置 = $# - 1
   if [ "$#" -le 1 ]; then
     # 位置 0：命令名位置（含 profile 名）
-    printf '%s\n' list create edit delete remove rm sync-models sessions vscode official default reset restore help version completion -h --help -V --version
+    printf '%s\n' list create edit delete remove rm sync-models sessions model vscode official default reset restore help version completion -h --help -V --version
     list_profiles
     return 0
   fi
   case "$1" in
-    create|official|default|reset|restore|list|help|version|__complete)
+    create|official|default|reset|restore|help|version|__complete)
       return 0
       ;;
     edit|sync-models)
       [ "$#" -eq 2 ] && list_profiles
+      ;;
+    model)
+      if [ "$#" -eq 2 ]; then
+        list_profiles
+      elif [ "$#" -eq 3 ]; then
+        list_profile_models "${2:-}" 2>/dev/null || true
+      fi
       ;;
     vscode)
       if [ "$#" -eq 2 ]; then
@@ -640,6 +693,7 @@ usage() {
   codex-switcher create <名称>           创建新的 profile（干净模板，不会复制主配置）
   codex-switcher edit <名称>             用 vim/指定编辑器打开对应 TOML，退出后自动同步模型
   codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
+  codex-switcher model <名称> [模型名]   查看/切换 profile 的 model（不带模型名时交互选择）
   codex-switcher delete <名称> [--yes]   删除一个 profile（默认需要确认）
   codex-switcher completion <shell>      输出 bash/zsh/fish/powershell 补全脚本
   codex-switcher <名称> [Codex参数...]   启动指定 profile
@@ -665,11 +719,50 @@ case "${1:-}" in
     exit 0
     ;;
   -V|--version|version)
-    echo "codex-switcher 3.2.0"
+    echo "codex-switcher 3.3.0"
     exit 0
     ;;
   list)
     list_profiles
+    exit 0
+    ;;
+  model)
+    name=${2:-}
+    [ -n "$name" ] || die "请指定 profile，例如：codex-switcher model provider-a"
+    valid_name "$name" || die "无效 profile 名称。"
+    reserved_name "$name" && die "'$name' 是保留命令名，请换一个 profile 名称。"
+    target="$codex_home/$name.config.toml"
+    [ -f "$target" ] || die "不存在 profile：$name"
+    new_model=${3:-}
+    if [ -n "$new_model" ]; then
+      valid_name "$new_model" || die "无效模型名。"
+      catalog_models=$(list_profile_models "$name" 2>/dev/null || true)
+      case "$catalog_models" in
+        *"$new_model"*) ;;
+        *) echo "警告：$new_model 不在 $name 的模型目录中；可执行 codex-switcher sync-models $name 刷新。" >&2 ;;
+      esac
+      set_profile_model "$name" "$new_model"
+      echo "已将 $name 的 model 切换为：$new_model"
+      exit 0
+    fi
+    current=$(toml_value "$target" model)
+    echo "当前 model：${current:-（未设置）}"
+    models=$(list_profile_models "$name")
+    [ -n "$models" ] || die "模型目录为空：$name-models.json"
+    i=1
+    for m in $models; do
+      printf '  %s) %s\n' "$i" "$m"
+      i=$((i + 1))
+    done
+    printf '选择编号切换（回车取消）：'
+    if ! read -r choice || [ -z "$choice" ]; then
+      echo "已取消。"
+      exit 0
+    fi
+    new_model=$(printf '%s\n' "$models" | sed -n "${choice}p")
+    [ -n "$new_model" ] || die "无效选择。"
+    set_profile_model "$name" "$new_model"
+    echo "已将 $name 的 model 切换为：$new_model"
     exit 0
     ;;
   __complete)

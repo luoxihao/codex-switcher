@@ -57,6 +57,19 @@ codex-switcher my-api              # 启动；模型目录不存在时才自动�
 - `CODEX_SWITCHER_NO_AUTO_SYNC=1` 关闭自动同步，只保留手动 `codex-switcher sync-models <名称>`。
 - 下面的「手工操作步骤」是自动同步不可用（例如中转站没有 `/models`）时的兜底方法。
 
+## 命令行切换默认模型（`model` 命令）
+
+`/model` 只改**当前会话**；想让某个模型成为 Profile 的默认模型（启动时就用它），用 `model` 命令，比手改 TOML 更安全：
+
+```sh
+codex-switcher model codex-5288               # 列出当前 model 与模型目录中的可选模型，输入编号切换（回车取消）
+codex-switcher model codex-5288 gpt-5.6-sol   # 直接切换 model
+```
+
+- 不带模型名时：显示当前 `model`，并列出模型目录（`model_catalog_json` 指向的文件）里的全部模型，输入编号切换。
+- 直接指定模型名时：立即把 Profile TOML 的 `model` 字段改为该模型；若该模型不在模型目录里，会给出警告并提示先 `sync-models`。
+- `review_model` 不跟随切换，需要时单独设置。
+
 ## Profile TOML 内容（`~/.codex/codex-5288.config.toml`）
 
 ```toml

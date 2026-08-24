@@ -350,7 +350,7 @@ Test-Case -Name 'version prints windows version' {
             FAKE_CODEX_LOG = $ctx.Log
         }
         Assert-Equal 0 $r.ExitCode 'version should exit 0'
-        Assert-Contains $r.Output 'codex-switcher 3.2.0-windows' 'version output should include windows marker'
+        Assert-Contains $r.Output 'codex-switcher 3.3.0-windows' 'version output should include windows marker'
     } finally {
         Remove-TempDir -Path $ctx.Home
     }
@@ -414,6 +414,26 @@ Test-Case -Name '__complete provides dynamic candidates' {
 
         $r5 = Invoke-Switcher -CommandArgs @('completion', 'powershell') -TestEnv $env
         Assert-Contains $r5.Output 'Register-ArgumentCompleter' 'completion powershell should print completer'
+
+        Set-Content -LiteralPath (Join-Path $ctx.Home 'demo-models.json') -Value '{"models":[{"slug":"gpt-5.5"},{"slug":"gpt-5.6-sol"}]}' -Encoding UTF8
+        $r6 = Invoke-Switcher -CommandArgs @('__complete', 'model', 'demo', 'gpt') -TestEnv $env
+        Assert-Contains $r6.Output 'gpt-5.6-sol' 'model should complete catalog models'
+    } finally {
+        Remove-TempDir -Path $ctx.Home
+    }
+}
+
+Test-Case -Name 'model switches profile default model' {
+    $ctx = New-TestContext
+    try {
+        Set-Content -LiteralPath (Join-Path $ctx.Home 'demo.config.toml') -Value 'model = "gpt-5.5"' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $ctx.Home 'demo-models.json') -Value '{"models":[{"slug":"gpt-5.5"},{"slug":"gpt-5.6-sol"}]}' -Encoding UTF8
+        $env = @{ CODEX_SWITCHER_CODEX_HOME = $ctx.Home }
+
+        $r = Invoke-Switcher -CommandArgs @('model', 'demo', 'gpt-5.6-sol') -TestEnv $env
+        Assert-Equal 0 $r.ExitCode 'model should exit 0'
+        Assert-Contains $r.Output 'gpt-5.6-sol' 'model should report switch'
+        Assert-FileContains -Path (Join-Path $ctx.Home 'demo.config.toml') -Needle 'model = "gpt-5.6-sol"' -Message 'model should update toml'
     } finally {
         Remove-TempDir -Path $ctx.Home
     }
@@ -617,7 +637,7 @@ Test-Case -Name 'install copies files and preserves existing deepseek models' {
             CODEX_SWITCHER_CODEX_HOME = $codexHome
         }
         Assert-Equal 0 $r2.ExitCode 'installed cmd should run'
-        Assert-Contains $r2.Output 'codex-switcher 3.2.0-windows' 'installed cmd should invoke ps1'
+        Assert-Contains $r2.Output 'codex-switcher 3.3.0-windows' 'installed cmd should invoke ps1'
     } finally {
         Remove-TempDir -Path $codexHome
         Remove-TempDir -Path $bin

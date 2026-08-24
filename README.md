@@ -5,7 +5,7 @@
 ## 简介
 
 - 自动生成并管理 Profile 的模型目录，`/model` 可直接切换中转站支持的模型。
-- 提供 `create` / `edit` / `delete` / `list`、模型同步、会话管理、shell 补全（bash/zsh/fish/PowerShell）、VS Code 集成和强制返回官方。
+- 提供 `create` / `edit` / `delete` / `list`、模型同步与命令行切换（`model`）、会话管理、shell 补全（bash/zsh/fish/PowerShell）、VS Code 集成和强制返回官方。
 - API Key 持久保存在本机 Profile TOML，不依赖临时环境变量。
 
 ## 支持平台
@@ -56,6 +56,7 @@ codex-switcher completion bash
 codex-switcher create my-api
 codex-switcher edit my-api
 codex-switcher sync-models my-api
+codex-switcher model my-api gpt-5.6-sol
 codex-switcher my-api
 codex-switcher official
 ```

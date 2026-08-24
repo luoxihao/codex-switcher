@@ -76,6 +76,16 @@ CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete ses
 CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete edit demo | grep -q '^demo$'
 CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete delete demo | grep -q '^--yes$'
 
+# model 命令：直接切换与交互切换
+printf '%s\n' '{"models":[{"slug":"gpt-5.5"},{"slug":"gpt-5.6-sol"}]}' > "$codex_home/demo-models.json"
+CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" model demo gpt-5.6-sol
+grep -q '^model = "gpt-5.6-sol"' "$codex_home/demo.config.toml"
+printf '2\n' | CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" model demo >/dev/null
+grep -q '^model = "gpt-5.6-sol"' "$codex_home/demo.config.toml"
+printf '1\n' | CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" model demo >/dev/null
+grep -q '^model = "gpt-5.5"' "$codex_home/demo.config.toml"
+test "$(CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete model demo gpt | grep -c '^gpt-5.6-sol$')" = "1"
+
 HOME="$test_home" "$bin_dir/codex-switcher" completion bash | grep -q '_codex_switcher_complete'
 HOME="$test_home" "$bin_dir/codex-switcher" completion zsh | grep -q 'compdef'
 HOME="$test_home" "$bin_dir/codex-switcher" completion fish | grep -q 'complete -c codex-switcher'

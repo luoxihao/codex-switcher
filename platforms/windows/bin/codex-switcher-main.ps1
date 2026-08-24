@@ -170,6 +170,60 @@ function Get-ProfileList {
     )
 }
 
+function Get-ProfileModels {
+    param([string]$Name)
+
+    $codexHome = Get-CodexHome
+    $profilePath = Join-Path $codexHome "$Name.config.toml"
+    if (-not (Test-Path -LiteralPath $profilePath -PathType Leaf)) {
+        throw "不存在 profile：$Name"
+    }
+    $catalog = Get-TomlValue -Path $profilePath -Key 'model_catalog_json'
+    if ([string]::IsNullOrWhiteSpace($catalog)) {
+        $catalog = "$Name-models.json"
+    }
+    $catalogPath = Join-Path $codexHome $catalog
+    if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) {
+        throw "模型目录不存在：$catalogPath；请先执行 codex-switcher sync-models $Name"
+    }
+    try {
+        $d = Get-Content -LiteralPath $catalogPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        throw "无法解析模型目录：$catalogPath"
+    }
+    $models = if ($null -ne $d -and $null -ne $d.models) { @($d.models) } else { @($d) }
+    foreach ($m in $models) {
+        if ($m -is [string]) {
+            $m
+        } elseif ($null -ne $m -and -not [string]::IsNullOrWhiteSpace($m.slug)) {
+            [string]$m.slug
+        }
+    }
+}
+
+function Set-ProfileModel {
+    param(
+        [string]$Name,
+        [string]$NewModel
+    )
+
+    $path = Join-Path (Get-CodexHome) "$Name.config.toml"
+    $lines = Get-Content -LiteralPath $path -Encoding UTF8
+    $replaced = $false
+    $out = foreach ($line in $lines) {
+        if ($line -match '^model\s*=') {
+            $replaced = $true
+            'model = "' + $NewModel + '"'
+        } else {
+            $line
+        }
+    }
+    if (-not $replaced) {
+        $out = @('model = "' + $NewModel + '"') + @($out)
+    }
+    Write-Utf8File -Path $path -Content ($out -join "`r`n")
+}
+
 function Test-ValidName {
     param([string]$Name)
 
@@ -181,7 +235,7 @@ function Test-ValidName {
 function Test-ReservedName {
     param([string]$Name)
 
-    if ($Name -in @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'official', 'default', 'reset', 'restore', 'help', 'version', 'completion', '__complete')) {
+    if ($Name -in @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'model', 'official', 'default', 'reset', 'restore', 'help', 'version', 'completion', '__complete')) {
         throw "'$Name' 是保留命令名，请换一个 profile 名称。"
     }
 }
@@ -700,7 +754,7 @@ function Get-CompletionCandidates {
     param([string[]]$Words)
 
     if ($Words.Count -le 1) {
-        Write-Output @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'vscode', 'official', 'default', 'reset', 'restore', 'help', 'version', 'completion', '-h', '--help', '-V', '--version')
+        Write-Output @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'model', 'vscode', 'official', 'default', 'reset', 'restore', 'help', 'version', 'completion', '-h', '--help', '-V', '--version')
         Get-ProfileList -CodexHome (Get-CodexHome)
         return
     }
@@ -717,6 +771,14 @@ function Get-CompletionCandidates {
         '__complete' { return }
         'edit' { if ($Words.Count -eq 2) { Get-ProfileList -CodexHome (Get-CodexHome) }; return }
         'sync-models' { if ($Words.Count -eq 2) { Get-ProfileList -CodexHome (Get-CodexHome) }; return }
+        'model' {
+            if ($Words.Count -eq 2) {
+                Get-ProfileList -CodexHome (Get-CodexHome)
+            } elseif ($Words.Count -eq 3) {
+                try { Get-ProfileModels -Name $Words[1] } catch { }
+            }
+            return
+        }
         'vscode' {
             if ($Words.Count -eq 2) {
                 Get-ProfileList -CodexHome (Get-CodexHome)
@@ -936,6 +998,7 @@ function Show-Usage {
   codex-switcher create <名称>           创建新的 profile（干净模板，不会复制主配置）
   codex-switcher edit <名称>             用编辑器打开对应 TOML，退出后自动同步模型
   codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
+  codex-switcher model <名称> [模型名]   查看/切换 profile 的 model（不带模型名时交互选择）
   codex-switcher delete <名称> [--yes]   删除一个 profile（默认需要确认）
   codex-switcher completion <shell>      输出 bash/zsh/fish/powershell 补全脚本
   codex-switcher <名称> [Codex参数...]   启动指定 profile
@@ -967,12 +1030,63 @@ function Invoke-CodexSwitcher {
             '-h' { Show-Usage; return }
             '--help' { Show-Usage; return }
             'help' { Show-Usage; return }
-            '-v' { Write-Output 'codex-switcher 3.2.0-windows'; return }
-            '--version' { Write-Output 'codex-switcher 3.2.0-windows'; return }
-            'version' { Write-Output 'codex-switcher 3.2.0-windows'; return }
+            '-v' { Write-Output 'codex-switcher 3.3.0-windows'; return }
+            '--version' { Write-Output 'codex-switcher 3.3.0-windows'; return }
+            'version' { Write-Output 'codex-switcher 3.3.0-windows'; return }
             'list' {
                 $codexHome = Get-CodexHome
                 Get-ProfileList -CodexHome $codexHome
+                return
+            }
+            'model' {
+                if ($CommandArgs.Count -lt 2) {
+                    throw '请指定 profile，例如：codex-switcher model provider-a'
+                }
+                $name = $CommandArgs[1]
+                Test-ValidName -Name $name
+                Test-ReservedName -Name $name
+                $profilePath = Join-Path (Get-CodexHome) "$name.config.toml"
+                if (-not (Test-Path -LiteralPath $profilePath -PathType Leaf)) {
+                    throw "不存在 profile：$name"
+                }
+                if ($CommandArgs.Count -ge 3) {
+                    $newModel = $CommandArgs[2]
+                    Test-ValidName -Name $newModel
+                    $catalogModels = @()
+                    try { $catalogModels = @(Get-ProfileModels -Name $name) } catch { }
+                    if ($catalogModels -notcontains $newModel) {
+                        Write-Output "警告：$newModel 不在 $name 的模型目录中；可执行 codex-switcher sync-models $name 刷新。"
+                    }
+                    Set-ProfileModel -Name $name -NewModel $newModel
+                    Write-Output "已将 $name 的 model 切换为：$newModel"
+                    return
+                }
+                $current = Get-TomlValue -Path $profilePath -Key 'model'
+                if ([string]::IsNullOrWhiteSpace($current)) {
+                    Write-Output '当前 model：（未设置）'
+                } else {
+                    Write-Output "当前 model：$current"
+                }
+                $models = @(Get-ProfileModels -Name $name)
+                if ($models.Count -eq 0) {
+                    throw "模型目录为空：$name-models.json"
+                }
+                $i = 1
+                foreach ($m in $models) {
+                    Write-Output "  $i) $m"
+                    $i++
+                }
+                $choice = Read-Host '选择编号切换（回车取消）'
+                if ([string]::IsNullOrWhiteSpace($choice)) {
+                    Write-Output '已取消。'
+                    return
+                }
+                if ($choice -notmatch '^\d+$' -or [int]$choice -lt 1 -or [int]$choice -gt $models.Count) {
+                    throw '无效选择。'
+                }
+                $newModel = $models[[int]$choice - 1]
+                Set-ProfileModel -Name $name -NewModel $newModel
+                Write-Output "已将 $name 的 model 切换为：$newModel"
                 return
             }
             '__complete' {
