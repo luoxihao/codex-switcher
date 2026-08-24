@@ -1,5 +1,6 @@
 ﻿Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$script:SwitcherScriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 
 function Get-CodexHome {
     if (-not [string]::IsNullOrWhiteSpace($env:CODEX_SWITCHER_CODEX_HOME)) {
@@ -180,7 +181,7 @@ function Test-ValidName {
 function Test-ReservedName {
     param([string]$Name)
 
-    if ($Name -in @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'official', 'default', 'reset', 'restore', 'help', 'version')) {
+    if ($Name -in @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'official', 'default', 'reset', 'restore', 'help', 'version', 'completion', '__complete')) {
         throw "'$Name' 是保留命令名，请换一个 profile 名称。"
     }
 }
@@ -672,6 +673,116 @@ function Remove-Session {
     Write-Output "已删除会话：$SessionId"
 }
 
+function Get-SessionCompletions {
+    $codexHome = Get-CodexHome
+    $sessionsDir = Join-Path $codexHome 'sessions'
+    if (-not (Test-Path -LiteralPath $sessionsDir -PathType Container)) {
+        return
+    }
+    $rows = @()
+    foreach ($p in Get-ChildItem -LiteralPath $sessionsDir -Recurse -Filter '*.jsonl' -File -ErrorAction SilentlyContinue) {
+        $stem = [System.IO.Path]::GetFileNameWithoutExtension($p.Name)
+        $m = [regex]::Match($stem, '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
+        $sid = if ($m.Success) { $m.Value } else { $stem.Substring($stem.LastIndexOf('-') + 1) }
+        $topic = Get-SessionTopic -SessionPath $p.FullName
+        if ($null -eq $topic) {
+            $topic = ''
+        }
+        $topic = $topic -replace "`t", ' '
+        $rows += [pscustomobject]@{ Sid = $sid; Topic = $topic }
+    }
+    foreach ($r in ($rows | Sort-Object { $_.Sid })) {
+        Write-Output ("{0}`t{1}" -f $r.Sid, $r.Topic)
+    }
+}
+
+function Get-CompletionCandidates {
+    param([string[]]$Words)
+
+    if ($Words.Count -le 1) {
+        Write-Output @('list', 'create', 'edit', 'delete', 'remove', 'rm', 'sync-models', 'sessions', 'vscode', 'official', 'default', 'reset', 'restore', 'help', 'version', 'completion', '-h', '--help', '-V', '--version')
+        Get-ProfileList -CodexHome (Get-CodexHome)
+        return
+    }
+    $first = $Words[0].ToLowerInvariant()
+    switch ($first) {
+        'create' { return }
+        'official' { return }
+        'default' { return }
+        'reset' { return }
+        'restore' { return }
+        'list' { return }
+        'help' { return }
+        'version' { return }
+        '__complete' { return }
+        'edit' { if ($Words.Count -eq 2) { Get-ProfileList -CodexHome (Get-CodexHome) }; return }
+        'sync-models' { if ($Words.Count -eq 2) { Get-ProfileList -CodexHome (Get-CodexHome) }; return }
+        'vscode' {
+            if ($Words.Count -eq 2) {
+                Get-ProfileList -CodexHome (Get-CodexHome)
+            } elseif ($Words.Count -eq 3) {
+                Write-Output '--isolated'
+            }
+            return
+        }
+        'delete' {
+            if ($Words.Count -eq 2) {
+                Write-Output '--yes'
+                Get-ProfileList -CodexHome (Get-CodexHome)
+            } elseif ($Words.Count -eq 3) {
+                Write-Output '--yes'
+            }
+            return
+        }
+        'remove' { Get-CompletionDeleteCandidates -Words $Words; return }
+        'rm' { Get-CompletionDeleteCandidates -Words $Words; return }
+        'sessions' {
+            if ($Words.Count -eq 2) {
+                Write-Output @('remove', 'rm')
+            } elseif ($Words.Count -eq 3 -and ($Words[1] -ieq 'remove' -or $Words[1] -ieq 'rm')) {
+                Get-SessionCompletions
+            }
+            return
+        }
+        'completion' { if ($Words.Count -eq 2) { Write-Output @('bash', 'zsh', 'fish', 'powershell') }; return }
+        default { return }
+    }
+}
+
+function Get-CompletionDeleteCandidates {
+    param([string[]]$Words)
+
+    if ($Words.Count -eq 2) {
+        Write-Output '--yes'
+        Get-ProfileList -CodexHome (Get-CodexHome)
+    } elseif ($Words.Count -eq 3) {
+        Write-Output '--yes'
+    }
+}
+
+function Print-CompletionScript {
+    param([string]$Shell)
+
+    $name = switch ($Shell) {
+        'bash' { 'codex-switcher.bash' }
+        'zsh' { '_codex-switcher.zsh' }
+        'fish' { 'codex-switcher.fish' }
+        'powershell' { 'codex-switcher-completion.ps1' }
+    }
+    $candidates = @(
+        (Join-Path $script:SwitcherScriptDir '..\completions' $name),
+        (Join-Path $script:SwitcherScriptDir '..\..\unix\completions' $name),
+        (Join-Path $env:LOCALAPPDATA 'codex-switcher\completions' $name)
+    )
+    foreach ($cand in $candidates) {
+        if (Test-Path -LiteralPath $cand -PathType Leaf) {
+            Get-Content -LiteralPath $cand -Raw -Encoding UTF8
+            return
+        }
+    }
+    throw "找不到 $name；请从源码目录运行，或重新执行 install.ps1 安装补全文件。"
+}
+
 function Clear-ProviderEnvironment {
     Remove-Item Env:ANTHROPIC_BASE_URL -ErrorAction SilentlyContinue
     Remove-Item Env:ANTHROPIC_AUTH_TOKEN -ErrorAction SilentlyContinue
@@ -826,6 +937,7 @@ function Show-Usage {
   codex-switcher edit <名称>             用编辑器打开对应 TOML，退出后自动同步模型
   codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
   codex-switcher delete <名称> [--yes]   删除一个 profile（默认需要确认）
+  codex-switcher completion <shell>      输出 bash/zsh/fish/powershell 补全脚本
   codex-switcher <名称> [Codex参数...]   启动指定 profile
 
 官方回退别名：official、default、reset、restore
@@ -855,12 +967,28 @@ function Invoke-CodexSwitcher {
             '-h' { Show-Usage; return }
             '--help' { Show-Usage; return }
             'help' { Show-Usage; return }
-            '-v' { Write-Output 'codex-switcher 3.1.0-windows'; return }
-            '--version' { Write-Output 'codex-switcher 3.1.0-windows'; return }
-            'version' { Write-Output 'codex-switcher 3.1.0-windows'; return }
+            '-v' { Write-Output 'codex-switcher 3.2.0-windows'; return }
+            '--version' { Write-Output 'codex-switcher 3.2.0-windows'; return }
+            'version' { Write-Output 'codex-switcher 3.2.0-windows'; return }
             'list' {
                 $codexHome = Get-CodexHome
                 Get-ProfileList -CodexHome $codexHome
+                return
+            }
+            '__complete' {
+                $words = if ($CommandArgs.Count -gt 1) { @($CommandArgs[1..($CommandArgs.Count - 1)]) } else { @() }
+                Get-CompletionCandidates -Words $words
+                return
+            }
+            'completion' {
+                if ($CommandArgs.Count -lt 2) {
+                    throw '请指定 shell：bash、zsh、fish 或 powershell。'
+                }
+                $shell = $CommandArgs[1].ToLowerInvariant()
+                if ($shell -notin @('bash', 'zsh', 'fish', 'powershell')) {
+                    throw '请指定 shell：bash、zsh、fish 或 powershell。'
+                }
+                Print-CompletionScript -Shell $shell
                 return
             }
             'sessions' {

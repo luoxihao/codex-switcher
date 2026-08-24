@@ -313,7 +313,7 @@ valid_name() {
 
 reserved_name() {
   case "$1" in
-    list|create|edit|delete|remove|rm|sync-models|sessions|official|default|reset|restore|help|version)
+    list|create|edit|delete|remove|rm|sync-models|sessions|official|default|reset|restore|help|version|completion|__complete)
       return 0 ;;
     *) return 1 ;;
   esac
@@ -420,7 +420,7 @@ remove_session() {
   [ -n "$sid" ] || die "请指定要删除的会话 ID，例如：codex-switcher sessions remove <会话ID>"
   command -v python3 >/dev/null 2>&1 || die "需要 python3 才能操作会话。"
   result=$(CODEX_SWITCHER_HOME="$codex_home" CODEX_SWITCHER_SESSION_ID="$sid" python3 <<'PY'
-import glob, json, os, sys
+import glob, json, os, re, sys
 
 codex_home = os.environ["CODEX_SWITCHER_HOME"]
 sid = os.environ["CODEX_SWITCHER_SESSION_ID"]
@@ -509,6 +509,125 @@ PY
   esac
 }
 
+list_session_completions() {
+  command -v python3 >/dev/null 2>&1 || return 0
+  CODEX_SWITCHER_HOME="$codex_home" python3 <<'PY'
+import glob, json, os, re, sys
+
+codex_home = os.environ["CODEX_SWITCHER_HOME"]
+sessions_dir = os.path.join(codex_home, "sessions")
+rows = []
+
+if os.path.isdir(sessions_dir):
+    for p in glob.glob(os.path.join(sessions_dir, "**", "*.jsonl"), recursive=True):
+        topic = ""
+        name_file = p + ".name"
+        if os.path.isfile(name_file):
+            try:
+                with open(name_file, encoding="utf-8", errors="replace") as nf:
+                    topic = nf.readline().strip()
+            except OSError:
+                pass
+        if not topic:
+            try:
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        try:
+                            d = json.loads(line)
+                        except Exception:
+                            continue
+                        if isinstance(d, dict) and d.get("type") == "event_msg":
+                            pl = d.get("payload") or {}
+                            if pl.get("type") == "user_message" and pl.get("message", "").strip():
+                                topic = pl.get("message", "").strip()
+                                break
+            except OSError:
+                pass
+        stem = os.path.basename(p)
+        if stem.endswith(".jsonl"):
+            stem = stem[:-6]
+        m = re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", stem)
+        sid = m.group(0) if m else stem.rsplit("-", 1)[-1]
+        topic = " ".join(topic.split()).replace("\t", " ")
+        if len(topic) > 60:
+            topic = topic[:57] + "..."
+        rows.append((sid, topic))
+
+rows.sort(key=lambda r: r[0])
+out = "".join("%s\t%s\n" % (sid, topic) for sid, topic in rows)
+try:
+    sys.stdout.write(out)
+except BrokenPipeError:
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, sys.stdout.fileno())
+PY
+}
+
+completion_candidates() {
+  # $@ 为已输入参数（含正在补全的当前词）；位置 = $# - 1
+  if [ "$#" -le 1 ]; then
+    # 位置 0：命令名位置（含 profile 名）
+    printf '%s\n' list create edit delete remove rm sync-models sessions vscode official default reset restore help version completion -h --help -V --version
+    list_profiles
+    return 0
+  fi
+  case "$1" in
+    create|official|default|reset|restore|list|help|version|__complete)
+      return 0
+      ;;
+    edit|sync-models)
+      [ "$#" -eq 2 ] && list_profiles
+      ;;
+    vscode)
+      if [ "$#" -eq 2 ]; then
+        list_profiles
+      elif [ "$#" -eq 3 ]; then
+        printf '%s\n' --isolated
+      fi
+      ;;
+    delete|remove|rm)
+      if [ "$#" -eq 2 ]; then
+        printf '%s\n' --yes
+        list_profiles
+      elif [ "$#" -eq 3 ]; then
+        printf '%s\n' --yes
+      fi
+      ;;
+    sessions)
+      if [ "$#" -eq 2 ]; then
+        printf '%s\n' remove rm
+      elif [ "$#" -eq 3 ] && { [ "$2" = "remove" ] || [ "$2" = "rm" ]; }; then
+        list_session_completions
+      fi
+      ;;
+    completion)
+      [ "$#" -eq 2 ] && printf '%s\n' bash zsh fish powershell
+      ;;
+  esac
+}
+
+print_completion() {
+  shell=$1
+  case "$shell" in
+    bash) name=codex-switcher.bash ;;
+    zsh) name=_codex-switcher.zsh ;;
+    fish) name=codex-switcher.fish ;;
+    powershell) name=codex-switcher-completion.ps1 ;;
+    *) return 1 ;;
+  esac
+  script_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
+  for dir in \
+    "$script_dir/../completions" \
+    "$script_dir/../../windows/completions" \
+    "$HOME/.local/share/codex-switcher/completions"; do
+    if [ -f "$dir/$name" ]; then
+      cat "$dir/$name"
+      return 0
+    fi
+  done
+  die "找不到 $name；请从源码目录运行，或重新执行 install.sh 安装补全文件。"
+}
+
 usage() {
   cat <<'EOF'
 用法：
@@ -522,6 +641,7 @@ usage() {
   codex-switcher edit <名称>             用 vim/指定编辑器打开对应 TOML，退出后自动同步模型
   codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
   codex-switcher delete <名称> [--yes]   删除一个 profile（默认需要确认）
+  codex-switcher completion <shell>      输出 bash/zsh/fish/powershell 补全脚本
   codex-switcher <名称> [Codex参数...]   启动指定 profile
 
 官方回退别名：official、default、reset、restore
@@ -545,11 +665,25 @@ case "${1:-}" in
     exit 0
     ;;
   -V|--version|version)
-    echo "codex-switcher 3.1.0"
+    echo "codex-switcher 3.2.0"
     exit 0
     ;;
   list)
     list_profiles
+    exit 0
+    ;;
+  __complete)
+    shift
+    completion_candidates "$@"
+    exit 0
+    ;;
+  completion)
+    shell=${2:-}
+    case "$shell" in
+      bash|zsh|fish|powershell) ;;
+      *) die "请指定 shell：bash、zsh、fish 或 powershell。" ;;
+    esac
+    print_completion "$shell"
     exit 0
     ;;
   sessions)

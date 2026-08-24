@@ -5,7 +5,7 @@
 ## 简介
 
 - 自动生成并管理 Profile 的模型目录，`/model` 可直接切换中转站支持的模型。
-- 提供 `create` / `edit` / `delete` / `list`、模型同步、会话管理、VS Code 集成和强制返回官方。
+- 提供 `create` / `edit` / `delete` / `list`、模型同步、会话管理、shell 补全（bash/zsh/fish/PowerShell）、VS Code 集成和强制返回官方。
 - API Key 持久保存在本机 Profile TOML，不依赖临时环境变量。
 
 ## 支持平台
@@ -52,6 +52,7 @@ powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
 codex-switcher list
 codex-switcher sessions
 codex-switcher sessions rm <会话ID>
+codex-switcher completion bash
 codex-switcher create my-api
 codex-switcher edit my-api
 codex-switcher sync-models my-api
@@ -72,6 +73,7 @@ codex-switcher official
 - [Profile 管理](docs/guides/profiles.md)
 - [模型目录与 /model 切换](docs/guides/model-switching.md)
 - [会话管理](docs/guides/sessions.md)
+- [补全](docs/guides/completion.md)
 - [VS Code 与会话](docs/guides/vscode.md)
 - [故障排查](docs/guides/troubleshooting.md)
 
