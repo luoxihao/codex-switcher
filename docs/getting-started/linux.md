@@ -5,7 +5,7 @@
 ## 前置条件
 
 - POSIX `sh`
-- `python3`（`sync-models` 合并模型目录使用）
+- `python3`（`sync-models` 同步模型目录使用）
 - Codex CLI，可通过 `CODEX_SWITCHER_CODEX_BIN` 指定现有可执行文件
 
 ## 安装

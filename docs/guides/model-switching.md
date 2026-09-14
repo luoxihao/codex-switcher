@@ -48,12 +48,13 @@ Codex CLI 的 `/model`（以及 `codex models`）只列出 **模型目录**（`m
 ```text
 codex-switcher create my-api       # 生成干净模板（含 model_catalog_json = "my-api-models.json"）
 codex-switcher edit my-api         # 填 base_url + Key，退出后自动 sync-models
-   └─ 查询 <base_url>/models → 匹配完整条目 → 合并进 my-api-models.json（只增不减、备份 .bak、权限 600）
+   └─ 查询 <base_url>/models → 匹配完整条目 → 同步 my-api-models.json（有增有删、备份 .bak、权限 600）
 codex-switcher my-api              # 启动；模型目录不存在时才自动同步一次（不每次同步）
 ```
 
-- 完整条目来源（按顺序查找）：`~/.codex/models_cache.json`（官方模型缓存）、`~/.codex/deepseek-models.json`（DeepSeek 模型来源目录）、现有模型目录（保留手工加的条目）。
-- 判定「哪些模型能用」：`/models` 返回的 ID 能在上述来源里匹配到完整条目即登记；`codex-auto-review` 等非用户可选模型跳过；匹配不到的中转站别名/旧模型跳过并在终端列出。
+- 完整条目来源（按顺序查找）：当前 Codex CLI 的内置模型目录（`codex debug models --bundled`）、`~/.codex/models_cache.json`（官方模型缓存）、`~/.codex/deepseek-models.json`（DeepSeek 模型来源目录）、现有模型目录。
+- 判定「哪些模型能用」：以 `/models` 当前返回的 ID 为准。能匹配到完整条目的模型会保留或新增；本地存在但远端不再返回的模型会删除；`codex-auto-review` 等非用户可选模型和所有来源都没有完整元数据的中转站自定义别名会跳过并在终端列出。
+- 发生新增或删除时，原模型目录会先备份为同目录下的 `.bak` 文件。中转站临时漏报模型也会触发删除，可先恢复 `.bak`，确认服务恢复后再同步。
 - `CODEX_SWITCHER_NO_AUTO_SYNC=1` 关闭自动同步，只保留手动 `codex-switcher sync-models <名称>`。
 - 下面的「手工操作步骤」是自动同步不可用（例如中转站没有 `/models`）时的兜底方法。
 
@@ -267,5 +268,5 @@ gpt-5.6-luna   GPT-5.6-Luna
 
 - `review_model`（自动 review 用的模型）**不会**跟随 `/model` 切换，需要时单独在 TOML 里修改。
 - `slug` 必须与中转站实际接受的模型 ID 完全一致（以它 `/models` 返回或文档为准），否则切换后请求会 404 / 报模型不存在。
-- 模型目录 JSON 属于用户数据，不入库；中转站后续新增模型时，按「手工操作步骤」补条目即可。
+- 模型目录 JSON 属于用户数据，不入库；中转站模型发生增删后，执行 `codex-switcher sync-models <名称>` 使本地目录与远端一致。
 - 回退：删除多余的模型条目，或恢复 `codex-5288-models.json.bak` 备份。

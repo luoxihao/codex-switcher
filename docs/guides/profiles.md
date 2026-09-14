@@ -67,7 +67,7 @@ experimental_bearer_token = "<你的Key>"
 
 ## 编辑与自动同步
 
-`edit` 打开 Profile TOML；退出后自动查询 `<base_url>/models` 并合并模型目录。`CODEX_SWITCHER_NO_AUTO_SYNC=1` 可关闭自动同步，只保留手动 `sync-models`。
+`edit` 打开 Profile TOML；退出后自动查询 `<base_url>/models`，按远端当前列表新增和删除本地模型目录条目，变更前备份 `.bak`。`CODEX_SWITCHER_NO_AUTO_SYNC=1` 可关闭自动同步，只保留手动 `sync-models`。
 
 ## 删除
 

@@ -167,8 +167,9 @@ sync_models() {
   models_url="${base_url}/models"
 
   tmp="$codex_home/.$name-sync.$$"
-  rm -f "$tmp"
-  trap 'rm -f "$tmp"' EXIT HUP INT TERM
+  bundled_catalog="$codex_home/.$name-bundled.$$"
+  rm -f "$tmp" "$bundled_catalog"
+  trap 'rm -f "$tmp" "$bundled_catalog"' EXIT HUP INT TERM
 
   echo "正在查询模型列表：$models_url"
   http_code=$(curl -sS -m 20 -o "$tmp" -w '%{http_code}' -H "Authorization: Bearer $key" "$models_url" || true)
@@ -200,7 +201,12 @@ print("\n".join(str(x.get("id","")) for x in d.get("data",[]) if x.get("id")))
   }
   [ -n "$ids" ] || { echo "错误：$models_url 返回的模型列表为空（data 为空）。" >&2; return 1; }
 
-  CODEX_SWITCHER_PROFILE="$name" CODEX_SWITCHER_HOME="$codex_home" CODEX_SWITCHER_IDS="$ids" python3 <<'PY'
+  if ! CODEX_HOME="$codex_home" "$codex_bin" debug models --bundled > "$bundled_catalog" 2>/dev/null; then
+    rm -f "$bundled_catalog"
+  fi
+
+  CODEX_SWITCHER_PROFILE="$name" CODEX_SWITCHER_HOME="$codex_home" \
+    CODEX_SWITCHER_IDS="$ids" CODEX_SWITCHER_BUNDLED_CATALOG="$bundled_catalog" python3 <<'PY'
 import json, os, shutil
 
 name = os.environ["CODEX_SWITCHER_PROFILE"]
@@ -210,6 +216,7 @@ ids = [line for line in os.environ.get("CODEX_SWITCHER_IDS", "").split() if line
 EXCLUDE = {"codex-auto-review"}
 
 source_files = [
+    os.environ.get("CODEX_SWITCHER_BUNDLED_CATALOG", ""),
     os.path.join(codex_home, "models_cache.json"),
     os.path.join(codex_home, "deepseek-models.json"),
     catalog_path,
@@ -229,34 +236,41 @@ for p in source_files:
     except Exception:
         continue
     for m in models:
-        by_slug.setdefault(m.get("slug"), m)
+        slug = m.get("slug")
+        if slug:
+            by_slug.setdefault(slug, m)
 
 existing = {}
 if os.path.exists(catalog_path):
     try:
         with open(catalog_path) as f:
             for m in json.load(f).get("models", []):
-                existing[m.get("slug")] = m
+                slug = m.get("slug")
+                if slug:
+                    existing[slug] = m
     except Exception:
         pass
 
+desired = {}
 added, skipped = [], []
 for mid in ids:
     if mid in EXCLUDE:
         skipped.append((mid, "非用户可选模型"))
         continue
     if mid in existing:
+        desired[mid] = existing[mid]
         continue
     entry = by_slug.get(mid)
     if entry is None:
-        skipped.append((mid, "无完整条目（models_cache.json / deepseek-models.json 均无）"))
+        skipped.append((mid, "无完整条目（Codex 内置目录 / models_cache.json / deepseek-models.json 均无）"))
         continue
-    existing[mid] = entry
+    desired[mid] = entry
     added.append(mid)
 
-models = sorted(existing.values(), key=lambda m: m.get("priority", 0), reverse=True)
+removed = sorted(set(existing) - set(desired))
+models = sorted(desired.values(), key=lambda m: m.get("priority", 0), reverse=True)
 
-if added or not os.path.exists(catalog_path):
+if added or removed or not os.path.exists(catalog_path):
     if os.path.exists(catalog_path):
         shutil.copy(catalog_path, catalog_path + ".bak")
     with open(catalog_path, "w") as f:
@@ -267,6 +281,10 @@ if added:
     print("新增 %d 个模型：%s" % (len(added), "、".join(added)))
 else:
     print("没有需要新增的模型。")
+if removed:
+    print("删除 %d 个远端已下架模型：%s" % (len(removed), "、".join(removed)))
+else:
+    print("没有需要删除的模型。")
 for mid, reason in skipped:
     print("跳过：%s（%s）" % (mid, reason))
 print("模型目录：%s（共 %d 个）" % (catalog_path, len(models)))
@@ -819,7 +837,7 @@ usage() {
   codex-switcher stats                   统计全部会话（按 Provider 分组）
   codex-switcher create <名称>           创建新的 profile（干净模板，不会复制主配置）
   codex-switcher edit <名称>             用 vim/指定编辑器打开对应 TOML，退出后自动同步模型
-  codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
+  codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并同步模型目录
   codex-switcher model <名称> [模型名]   查看/切换 profile 的 model（不带模型名时交互选择）
   codex-switcher doctor [名称]           诊断 Codex 与 profile 环境（缺省检查全部 profile）
   codex-switcher delete <名称> [--yes]   删除一个 profile（默认需要确认）
@@ -830,7 +848,7 @@ usage() {
 所有第三方 Provider（包括 DeepSeek）都走同一个通用流程：
   create 生成干净模板，edit 填写 base_url 与 Key，退出编辑或执行 sync-models 时
   自动查询 <base_url>/models 并生成 <名称>-models.json，/model 直接切换该中转站
-  支持的所有模型（只增不减、自动备份、权限 600）。
+  支持的所有模型（有增有删、变更前自动备份、权限 600）。
 环境变量：CODEX_SWITCHER_NO_AUTO_SYNC=1 可关闭自动同步，只保留手动 sync-models。
 编辑器：优先使用 CODEX_SWITCHER_EDITOR，其次 VISUAL/EDITOR，默认 vim
 profile：<Codex 主目录>/<名称>.config.toml（默认 ~/.codex，可用 CODEX_SWITCHER_CODEX_HOME 覆盖）

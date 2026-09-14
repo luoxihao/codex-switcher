@@ -322,7 +322,7 @@ function Write-ModelsCache {
 
 function Start-SyncModelsTestServer {
     $root = New-TempDir
-    Write-MockModels -Root $root -Json '{"data":[{"id":"gpt-test"},{"id":"unknown-model"}]}'
+    Write-MockModels -Root $root -Json '{"data":[{"id":"gpt-test"},{"id":"gpt-bundled"},{"id":"unknown-model"}]}'
     $port = Get-FreePort
     $process = Start-MockHttpServer -Root $root -Port $port
     return [pscustomobject]@{
@@ -619,7 +619,7 @@ Test-Case -Name 'toml parser reads test key' {
     }
 }
 
-Test-Case -Name 'sync-models queries /models and merges catalog' {
+Test-Case -Name 'sync-models reconciles catalog with /models' {
     $ctx = New-TestContext
     $server = $null
     try {
@@ -627,17 +627,25 @@ Test-Case -Name 'sync-models queries /models and merges catalog' {
         Write-ModelsCache -CodexHome $ctx.Home
         $server = Start-SyncModelsTestServer
         Write-TestProfile -CodexHome $ctx.Home -Name 'relay' -BaseUrl "http://127.0.0.1:$($server.Port)/v1"
-        Set-Content -LiteralPath (Join-Path $ctx.Home 'relay-models.json') -Value '{"models":[{"slug":"manual-model","display_name":"Manual"}]}' -Encoding UTF8
+        Set-Content -LiteralPath (Join-Path $ctx.Home 'relay-models.json') -Value '{"models":[{"slug":"removed-model","display_name":"Removed"}]}' -Encoding UTF8
         $probe = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$($server.Port)/v1/models"
         $probeText = [System.Text.Encoding]::UTF8.GetString([byte[]]$probe.Content)
         Assert-Contains $probeText 'gpt-test' "mock models endpoint should serve JSON, got: $probeText"
 
-        $r = Invoke-Switcher -CommandArgs @('sync-models', 'relay') -TestEnv @{ CODEX_SWITCHER_CODEX_HOME = $ctx.Home }
+        $r = Invoke-Switcher -CommandArgs @('sync-models', 'relay') -TestEnv @{
+            CODEX_SWITCHER_CODEX_HOME = $ctx.Home
+            CODEX_SWITCHER_CODEX_BIN = $script:FakeCodex
+            FAKE_CODEX_BUNDLED_JSON = '{"models":[{"slug":"gpt-bundled","display_name":"GPT Bundled","base_instructions":"test","priority":2}]}'
+        }
         Assert-Equal 0 $r.ExitCode "sync-models should exit 0. Output: $($r.Output)"
-        Assert-Contains $r.Output '新增 1 个模型' 'sync should report one added model'
+        Assert-Contains $r.Output '新增 2 个模型' 'sync should report two added models'
+        Assert-Contains $r.Output '删除 1 个远端已下架模型：removed-model' 'sync should report one removed model'
         Assert-Contains $r.Output '跳过：unknown-model' 'sync should report skipped unknown model'
         Assert-FileContains -Path (Join-Path $ctx.Home 'relay-models.json') -Needle 'gpt-test' -Message 'synced catalog should include gpt-test'
-        Assert-FileContains -Path (Join-Path $ctx.Home 'relay-models.json') -Needle 'manual-model' -Message 'sync should preserve manual entries'
+        Assert-FileContains -Path (Join-Path $ctx.Home 'relay-models.json') -Needle 'gpt-bundled' -Message 'synced catalog should include Codex bundled models'
+        $catalog = Get-Content -LiteralPath (Join-Path $ctx.Home 'relay-models.json') -Raw -Encoding UTF8
+        Assert-True ($catalog.IndexOf('removed-model', [System.StringComparison]::Ordinal) -lt 0) 'sync should remove models absent from /models'
+        Assert-FileContains -Path (Join-Path $ctx.Home 'relay-models.json.bak') -Needle 'removed-model' -Message 'sync should back up the catalog before pruning'
     } finally {
         Stop-SyncModelsTestServer -Server $server
         Remove-TempDir -Path $ctx.Home

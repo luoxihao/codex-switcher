@@ -95,6 +95,47 @@ printf '1\n' | CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher"
 grep -q '^model = "gpt-5.5"' "$codex_home/demo.config.toml"
 test "$(CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __complete model demo gpt | grep -c '^gpt-5.6-sol$')" = "1"
 
+# sync-models：按远端列表新增和删除模型，并在变更前备份
+sync_bin="$test_root/sync-bin"
+mkdir -p "$sync_bin"
+{
+  printf '%s\n' '#!/bin/sh' 'set -eu'
+  printf '%s\n' 'output_file='
+  printf '%s\n' 'while [ "$#" -gt 0 ]; do'
+  printf '%s\n' '  case "$1" in'
+  printf '%s\n' '    -o) output_file=$2; shift 2 ;;'
+  printf '%s\n' '    -w) shift 2 ;;'
+  printf '%s\n' '    *) shift ;;'
+  printf '%s\n' '  esac'
+  printf '%s\n' 'done'
+  printf '%s\n' 'printf '\''%s\n'\'' '\''{"data":[{"id":"gpt-test"},{"id":"gpt-bundled"},{"id":"unknown-model"}]}'\'' > "$output_file"'
+  printf '%s\n' 'printf '\''200'\'''
+} > "$sync_bin/curl"
+chmod +x "$sync_bin/curl"
+{
+  printf '%s\n' '#!/bin/sh' 'set -eu'
+  printf '%s\n' 'test "$1 $2 $3" = "debug models --bundled"'
+  printf '%s\n' 'printf '\''%s\n'\'' '\''{"models":[{"slug":"gpt-bundled","display_name":"GPT Bundled","base_instructions":"test","priority":2}]}'\'''
+} > "$sync_bin/codex"
+chmod +x "$sync_bin/codex"
+printf '%s\n' \
+  'model = "gpt-test"' \
+  'base_url = "https://api.example.com/v1"' \
+  'experimental_bearer_token = "sk-0123456789abcdef"' \
+  'model_catalog_json = "demo-models.json"' > "$codex_home/demo.config.toml"
+printf '%s\n' '{"models":[{"slug":"gpt-test","display_name":"GPT Test","priority":1}]}' > "$codex_home/models_cache.json"
+printf '%s\n' '{"models":[{"slug":"removed-model","display_name":"Removed"}]}' > "$codex_home/demo-models.json"
+PATH="$sync_bin:$PATH" CODEX_SWITCHER_CODEX_HOME="$codex_home" \
+  CODEX_SWITCHER_CODEX_BIN="$sync_bin/codex" \
+  "$bin_dir/codex-switcher" sync-models demo > "$test_root/sync-output.txt"
+grep -Fq '新增 2 个模型：gpt-test、gpt-bundled' "$test_root/sync-output.txt"
+grep -Fq '删除 1 个远端已下架模型：removed-model' "$test_root/sync-output.txt"
+grep -Fq '跳过：unknown-model' "$test_root/sync-output.txt"
+grep -Fq '"slug": "gpt-test"' "$codex_home/demo-models.json"
+grep -Fq '"slug": "gpt-bundled"' "$codex_home/demo-models.json"
+! grep -Fq 'removed-model' "$codex_home/demo-models.json"
+grep -Fq 'removed-model' "$codex_home/demo-models.json.bak"
+
 # doctor：完整配置通过、缺配置报问题
 printf '%s\n' 'model = "gpt-5.5"' 'base_url = "https://api.example.com/v1"' 'experimental_bearer_token = "sk-0123456789abcdef"' 'model_catalog_json = "demo-models.json"' > "$codex_home/demo.config.toml"
 CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" doctor demo >/dev/null

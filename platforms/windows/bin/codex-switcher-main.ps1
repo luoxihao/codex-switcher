@@ -261,15 +261,20 @@ function Test-ReservedName {
     }
 }
 
-function Merge-ModelCatalog {
+function Sync-ModelCatalog {
     param(
         [string]$CodexHome,
         [string]$Name,
-        [string[]]$Ids
+        [string[]]$Ids,
+        [string]$BundledCatalogPath
     )
 
     $catalogPath = Join-Path $CodexHome "$Name-models.json"
-    $sourceFiles = @(
+    $sourceFiles = @()
+    if (-not [string]::IsNullOrWhiteSpace($BundledCatalogPath)) {
+        $sourceFiles += $BundledCatalogPath
+    }
+    $sourceFiles += @(
         (Join-Path $CodexHome 'models_cache.json'),
         (Join-Path $CodexHome 'deepseek-models.json'),
         $catalogPath
@@ -308,6 +313,7 @@ function Merge-ModelCatalog {
     }
 
     $excluded = @('codex-auto-review')
+    $desired = @{}
     $added = @()
     $skipped = @()
     foreach ($id in $Ids) {
@@ -316,17 +322,19 @@ function Merge-ModelCatalog {
             continue
         }
         if ($existing.ContainsKey($id)) {
+            $desired[$id] = $existing[$id]
             continue
         }
         if ($bySlug.ContainsKey($id)) {
-            $existing[$id] = $bySlug[$id]
+            $desired[$id] = $bySlug[$id]
             $added += $id
         } else {
-            $skipped += [pscustomobject]@{ Id = $id; Reason = '无完整条目（models_cache.json / deepseek-models.json 均无）' }
+            $skipped += [pscustomobject]@{ Id = $id; Reason = '无完整条目（Codex 内置目录 / models_cache.json / deepseek-models.json 均无）' }
         }
     }
 
-    $models = @($existing.Values | Sort-Object @{
+    $removed = @($existing.Keys | Where-Object { -not $desired.ContainsKey([string]$_) } | Sort-Object)
+    $models = @($desired.Values | Sort-Object @{
         Expression = {
             $priorityProperty = $_.PSObject.Properties['priority']
             if ($null -ne $priorityProperty -and $null -ne $priorityProperty.Value) {
@@ -338,7 +346,7 @@ function Merge-ModelCatalog {
         Descending = $true
     }, @{ Expression = { [string]$_.slug } })
 
-    if ($added.Count -gt 0 -or -not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) {
+    if ($added.Count -gt 0 -or $removed.Count -gt 0 -or -not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) {
         if (Test-Path -LiteralPath $catalogPath -PathType Leaf) {
             Copy-Item -LiteralPath $catalogPath -Destination "$catalogPath.bak" -Force
         }
@@ -351,6 +359,11 @@ function Merge-ModelCatalog {
         Write-Output "新增 $($added.Count) 个模型：$($added -join '、')"
     } else {
         Write-Output '没有需要新增的模型。'
+    }
+    if ($removed.Count -gt 0) {
+        Write-Output "删除 $($removed.Count) 个远端已下架模型：$($removed -join '、')"
+    } else {
+        Write-Output '没有需要删除的模型。'
     }
     foreach ($item in $skipped) {
         Write-Output "跳过：$($item.Id)（$($item.Reason)）"
@@ -435,7 +448,22 @@ function Sync-Models {
         throw "$modelsUrl 返回的模型列表为空（data 为空）。"
     }
 
-    Merge-ModelCatalog -CodexHome $codexHome -Name $Name -Ids $ids
+    $bundledCatalogPath = Join-Path $codexHome ".$Name-bundled-$PID.json"
+    try {
+        try {
+            $codexBin = Find-Codex
+            $bundledJson = (& $codexBin debug models --bundled 2>$null | Out-String)
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($bundledJson)) {
+                $null = $bundledJson | ConvertFrom-Json
+                Write-Utf8File -Path $bundledCatalogPath -Content $bundledJson
+            }
+        } catch {
+            Remove-Item -LiteralPath $bundledCatalogPath -Force -ErrorAction SilentlyContinue
+        }
+        Sync-ModelCatalog -CodexHome $codexHome -Name $Name -Ids $ids -BundledCatalogPath $bundledCatalogPath
+    } finally {
+        Remove-Item -LiteralPath $bundledCatalogPath -Force -ErrorAction SilentlyContinue
+    }
 
     if (-not (Select-String -LiteralPath $profilePath -Pattern '^\s*model_catalog_json\s*=' -Quiet)) {
         Copy-Item -LiteralPath $profilePath -Destination "$profilePath.bak" -Force
@@ -1207,7 +1235,7 @@ function Show-Usage {
   codex-switcher stats                   统计全部会话（按 Provider 分组）
   codex-switcher create <名称>           创建新的 profile（干净模板，不会复制主配置）
   codex-switcher edit <名称>             用编辑器打开对应 TOML，退出后自动同步模型
-  codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并自动生成/合并模型目录
+  codex-switcher sync-models <名称>      查询中转站 <base_url>/models 并同步模型目录
   codex-switcher model <名称> [模型名]   查看/切换 profile 的 model（不带模型名时交互选择）
   codex-switcher doctor [名称]           诊断 Codex 与 profile 环境（缺省检查全部 profile）
   codex-switcher delete <名称> [--yes]   删除一个 profile（默认需要确认）
@@ -1218,7 +1246,7 @@ function Show-Usage {
 所有第三方 Provider（包括 DeepSeek）都走同一个通用流程：
   create 生成干净模板，edit 填写 base_url 与 Key，退出编辑或执行 sync-models 时
   自动查询 <base_url>/models 并生成 <名称>-models.json，/model 直接切换该中转站
-  支持的所有模型（只增不减、自动备份）。
+  支持的所有模型（有增有删、变更前自动备份）。
 环境变量：CODEX_SWITCHER_NO_AUTO_SYNC=1 可关闭自动同步，只保留手动 sync-models。
 编辑器：优先使用 CODEX_SWITCHER_EDITOR，其次 VISUAL/EDITOR，默认 notepad
 profile：<Codex 主目录>/<名称>.config.toml（默认 %USERPROFILE%\.codex，可用 CODEX_SWITCHER_CODEX_HOME 覆盖）

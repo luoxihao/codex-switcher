@@ -17,4 +17,8 @@ if (-not [string]::IsNullOrWhiteSpace($env:FAKE_CODEX_EXIT)) {
     exit ([int]$env:FAKE_CODEX_EXIT)
 }
 
+if (($args -join '|') -eq 'debug|models|--bundled' -and -not [string]::IsNullOrWhiteSpace($env:FAKE_CODEX_BUNDLED_JSON)) {
+    Write-Output $env:FAKE_CODEX_BUNDLED_JSON
+}
+
 exit 0
