@@ -1101,7 +1101,7 @@ function Invoke-Official {
     Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
     $env:CODEX_HOME = $codexHome
     Write-Output '已清理第三方 Provider 环境，正在使用官方 OpenAI Codex。'
-    & $codexBin -c 'model_provider="openai"' -c 'model="gpt-5.4"' @RemainingArgs
+    & $codexBin -c 'model_provider="openai"' @RemainingArgs
     $global:SwitcherExitCode = $LASTEXITCODE
 }
 

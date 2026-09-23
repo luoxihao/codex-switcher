@@ -1164,7 +1164,6 @@ print(len([m for m in models if isinstance(m, dict) and m.get("slug")]))
     shift
     CODEX_HOME="$codex_home" exec "$codex_bin" \
       -c 'model_provider="openai"' \
-      -c 'model="gpt-5.4"' \
       "$@"
     ;;
 esac

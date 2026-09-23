@@ -64,6 +64,8 @@ codex-switcher my-api
 codex-switcher official
 ```
 
+`official` 会清理第三方 Provider 环境，并沿用 Codex 当前的模型配置（例如 `~/.codex/config.toml` 中的 `model`）；不会固定指定旧模型。
+
 ## 文档
 
 平台入门：
