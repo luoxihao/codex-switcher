@@ -66,6 +66,8 @@ codex-switcher official
 
 `official` 会清理第三方 Provider 环境，并沿用 Codex 当前的模型配置（例如 `~/.codex/config.toml` 中的 `model`）；不会固定指定旧模型。
 
+如果官方 Codex 的账号读取因网络超时，可在 macOS/Linux 的 `~/.config/codex-switcher/proxy` 写入一行 HTTP 代理地址（例如 `http://127.0.0.1:7897`）。`official` 启动的 Codex 会使用该代理；已有的代理环境变量优先。也可临时设置 `CODEX_SWITCHER_PROXY` 覆盖文件配置。这个设置只影响 `official` 及其别名启动的进程。
+
 ## 文档
 
 平台入门：

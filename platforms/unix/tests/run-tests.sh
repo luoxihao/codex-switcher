@@ -35,6 +35,11 @@ fi
 ! grep -Fq '# codex-switcher menu-complete' "$test_home/.zshrc" 2>/dev/null
 
 # 启用 Tab 循环补全（bash 分支）
+if [ "$(uname -s)" = "Darwin" ]; then
+  bash_rc="$test_home/.bash_profile"
+else
+  bash_rc="$test_home/.bashrc"
+fi
 CODEX_SWITCHER_BIN_DIR="$bin_dir" \
 CODEX_SWITCHER_CODEX_HOME="$codex_home" \
 HOME="$test_home" \
@@ -42,9 +47,9 @@ CODEX_SWITCHER_NO_PATH=1 \
 CODEX_SWITCHER_MENU_COMPLETE=1 \
 SHELL=/bin/bash \
 sh "$repo_root/install.sh" >/dev/null
-grep -Fq '# codex-switcher menu-complete' "$test_home/.bashrc"
-grep -Fq 'bind "\t":menu-complete' "$test_home/.bashrc"
-grep -Fq 'menu-complete-backward' "$test_home/.bashrc"
+grep -Fq '# codex-switcher menu-complete' "$bash_rc"
+grep -Fq 'bind "\t":menu-complete' "$bash_rc"
+grep -Fq 'menu-complete-backward' "$bash_rc"
 
 # 启用 Tab 循环补全（zsh 分支）
 CODEX_SWITCHER_BIN_DIR="$bin_dir" \
@@ -65,6 +70,46 @@ test "$(CODEX_SWITCHER_CODEX_HOME="$codex_home" "$bin_dir/codex-switcher" __comp
 
 mkdir -p "$codex_home/sessions/2026/08/24"
 printf '%s\n' 'model = "gpt-5.5"' > "$codex_home/demo.config.toml"
+
+# official：独立代理配置传给 Codex，已有环境变量优先，其他 profile 不受影响。
+fake_codex="$test_root/fake-codex"
+cat > "$fake_codex" <<'EOF'
+#!/bin/sh
+printf '%s\n' "${HTTP_PROXY:-}" "${HTTPS_PROXY:-}" "$@" > "$FAKE_CODEX_LOG"
+EOF
+chmod +x "$fake_codex"
+mkdir -p "$test_root/config/codex-switcher"
+printf '%s\n' 'http://127.0.0.1:7897' > "$test_root/config/codex-switcher/proxy"
+(
+  unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy CODEX_SWITCHER_PROXY
+  HOME="$test_home" XDG_CONFIG_HOME="$test_root/config" \
+    CODEX_SWITCHER_CODEX_HOME="$codex_home" CODEX_SWITCHER_CODEX_BIN="$fake_codex" \
+    FAKE_CODEX_LOG="$test_root/codex-args" \
+    "$bin_dir/codex-switcher" official resume test-session >/dev/null
+)
+test "$(sed -n '1p' "$test_root/codex-args")" = 'http://127.0.0.1:7897'
+test "$(sed -n '2p' "$test_root/codex-args")" = 'http://127.0.0.1:7897'
+grep -Fxq 'resume' "$test_root/codex-args"
+grep -Fxq 'test-session' "$test_root/codex-args"
+(
+  unset HTTP_PROXY http_proxy https_proxy ALL_PROXY all_proxy CODEX_SWITCHER_PROXY
+  HOME="$test_home" XDG_CONFIG_HOME="$test_root/config" HTTPS_PROXY='http://existing:8080' \
+    CODEX_SWITCHER_CODEX_HOME="$codex_home" CODEX_SWITCHER_CODEX_BIN="$fake_codex" \
+    FAKE_CODEX_LOG="$test_root/codex-args" \
+    "$bin_dir/codex-switcher" official >/dev/null
+)
+test "$(sed -n '1p' "$test_root/codex-args")" = ''
+test "$(sed -n '2p' "$test_root/codex-args")" = 'http://existing:8080'
+(
+  unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy ALL_PROXY all_proxy CODEX_SWITCHER_PROXY
+  HOME="$test_home" XDG_CONFIG_HOME="$test_root/config" \
+    CODEX_SWITCHER_CODEX_HOME="$codex_home" CODEX_SWITCHER_CODEX_BIN="$fake_codex" \
+    CODEX_SWITCHER_NO_AUTO_SYNC=1 FAKE_CODEX_LOG="$test_root/codex-args" \
+    "$bin_dir/codex-switcher" demo >/dev/null
+)
+test "$(sed -n '1p' "$test_root/codex-args")" = ''
+test "$(sed -n '2p' "$test_root/codex-args")" = ''
+
 test_sid=019fabc1-2222-3333-4444-555566667777
 {
   printf '%s\n' "{\"timestamp\":\"2026-08-24T02:00:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"session_id\":\"$test_sid\",\"id\":\"$test_sid\",\"cwd\":\"/tmp\",\"model_provider\":\"custom\",\"timestamp\":\"2026-08-24T02:00:00.000Z\"}}"

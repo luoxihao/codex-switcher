@@ -313,6 +313,26 @@ prepare_official_environment() {
   unset CODEX_SWITCHER_VSCODE_BIN
   unset CODEX_SWITCHER_EDITOR
   prepare_provider_environment
+  prepare_official_proxy
+}
+
+prepare_official_proxy() {
+  proxy_url=${CODEX_SWITCHER_PROXY:-}
+  if [ -z "$proxy_url" ]; then
+    # An existing proxy setting takes precedence over the switcher config.
+    [ -z "${HTTP_PROXY:-}${HTTPS_PROXY:-}${http_proxy:-}${https_proxy:-}${ALL_PROXY:-}${all_proxy:-}" ] || return 0
+    proxy_file="${XDG_CONFIG_HOME:-$HOME/.config}/codex-switcher/proxy"
+    [ -f "$proxy_file" ] || return 0
+    proxy_url=$(sed -n '1p' "$proxy_file")
+  fi
+  [ -n "$proxy_url" ] || return 0
+  case "$proxy_url" in
+    http://*|https://*) ;;
+    *) die "代理地址需以 http:// 或 https:// 开头。" ;;
+  esac
+  HTTP_PROXY=$proxy_url
+  HTTPS_PROXY=$proxy_url
+  export HTTP_PROXY HTTPS_PROXY
 }
 
 prepare_provider_environment() {
@@ -980,7 +1000,7 @@ models = d.get("models", []) if isinstance(d, dict) else d
 print(len([m for m in models if isinstance(m, dict) and m.get("slug")]))
 ' "$catalog_file" 2>/dev/null || echo 0)
         if [ "$count" -gt 0 ] 2>/dev/null; then
-          echo "[OK] 模型目录：$catalog_file（$count 个模型）"
+          echo "[OK] 模型目录：${catalog_file}（$count 个模型）"
         else
           echo "[警告] 模型目录为空或无法解析：$catalog_file；可执行 codex-switcher sync-models $name"
           problems=$((problems + 1))
